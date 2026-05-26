@@ -1,0 +1,302 @@
+# BioPresence — Système de Contrôle de Présence Biométrique
+
+Application web full-stack permettant la gestion des présences étudiantes via empreinte biométrique, avec un tableau de bord d'administration complet.
+
+---
+
+## 🗂️ Structure globale du projet
+
+```
+Projet_tutoré_bio/
+├── assets/                  → Images et ressources statiques
+├── client/                  → Application frontend (React + TypeScript)
+├── java-api/                → Backend REST (Spring Boot + MariaDB)
+├── server/                  → Serveur Express (déploiement production)
+├── patches/                 → Correctifs de dépendances
+├── package.json             → Dépendances et scripts du projet
+├── vite.config.ts           → Configuration du bundler Vite
+├── tsconfig.json            → Configuration TypeScript
+└── components.json          → Configuration de la bibliothèque UI
+```
+
+---
+
+## 📁 Fichiers racine
+
+| Fichier | Rôle |
+|---|---|
+| `package.json` | Déclare toutes les dépendances npm/pnpm et les scripts (`dev`, `build`, `start`). C'est le fichier central pour gérer les packages du frontend et du serveur Node. |
+| `pnpm-lock.yaml` | Verrouille les versions exactes de chaque dépendance installée. Garantit que tout le monde installe les mêmes versions. Ne pas modifier manuellement. |
+| `vite.config.ts` | Configure le serveur de développement Vite (port 3000, alias `@/`, chemin du build). Vite compile et recharge le frontend en temps réel. |
+| `tsconfig.json` | Configuration TypeScript pour le code frontend (`client/src`). Définit les règles de typage strict et les chemins d'alias. |
+| `tsconfig.node.json` | Configuration TypeScript spécifique aux outils Node.js (Vite, scripts de build). Séparé de `tsconfig.json` pour éviter les conflits. |
+| `components.json` | Configuration de **shadcn/ui** — définit le style, le chemin des composants et l'alias `@`. Utilisé par la CLI shadcn pour ajouter des composants. |
+| `.prettierrc` | Règles de formatage automatique du code (indentation, guillemets, virgules). |
+| `.prettierignore` | Liste des fichiers exclus du formatage automatique (ex: `pnpm-lock.yaml`). |
+| `.gitignore` | Liste des fichiers et dossiers exclus du suivi Git (`node_modules`, `dist`, etc.). |
+| `README.md` | Ce fichier — documentation complète du projet. |
+
+---
+
+## 🖼️ Dossier `assets/`
+
+| Fichier | Rôle |
+|---|---|
+| `assets/images/bio.png` | Logo principal de l'application BioPresence. Importé dans la page d'accueil, la page de connexion et la barre latérale. |
+
+---
+
+## 🌐 Dossier `client/` — Frontend React
+
+### Point d'entrée
+
+| Fichier | Rôle |
+|---|---|
+| `client/index.html` | Page HTML racine chargée par le navigateur. Contient le `<div id="root">` où React monte l'application. |
+| `client/src/main.tsx` | Point d'entrée JavaScript de l'application React. Monte le composant `<App />` dans le DOM et active le mode strict de React. |
+| `client/src/App.tsx` | Composant racine qui configure le **routeur** (Wouter), les providers globaux (Auth, Thème, Tooltip) et définit toutes les routes de l'application (`/accueil`, `/connexion`, `/admin/*`). |
+| `client/src/index.css` | Feuille de styles globale. Importe Tailwind CSS, définit les variables de couleur, le thème clair/sombre et les utilitaires CSS personnalisés. |
+| `client/src/const.ts` | Constantes globales partagées dans tout le frontend (valeurs fixes, configurations communes). |
+| `client/public/bio.png` | Copie du logo accessible directement via l'URL `/bio.png` (utilisée comme favicon ou dans le HTML). |
+
+---
+
+### 📄 Pages (`client/src/pages/`)
+
+Chaque fichier correspond à une page complète de l'application.
+
+| Fichier | Rôle |
+|---|---|
+| `Connexion.tsx` | Page de connexion administrateur. Contient le formulaire email/mot de passe qui s'authentifie auprès de l'API Java. Route : `/connexion`. |
+| `AdminTableauDeBord.tsx` | Tableau de bord principal de l'administrateur. Affiche les statistiques globales (présences, étudiants, taux d'assiduité) et les graphiques. Route : `/admin/tableau-de-bord`. |
+| `AdminEtudiants.tsx` | Gestion complète des étudiants : création, modification, suppression, enrôlement biométrique, paramètres de cours. Route : `/admin/etudiants`. |
+| `AdminPresence.tsx` | Interface de scan biométrique en temps réel. Gère la connexion au capteur d'empreinte, l'enregistrement des présences et l'affichage des scans récents. Route : `/admin/presence`. |
+| `Introuvable.tsx` | Page d'erreur 404 affichée quand une route n'existe pas. Propose un lien de retour vers l'accueil. |
+
+---
+
+### 🧩 Composants (`client/src/components/`)
+
+Composants réutilisables utilisés dans plusieurs pages.
+
+| Fichier | Rôle |
+|---|---|
+| `ErrorBoundary.tsx` | Composant React qui capture les erreurs JavaScript non gérées et affiche un message d'erreur propre à la place d'un écran blanc. Entoure toute l'application dans `App.tsx`. |
+| `ProtectedRoute.tsx` | Garde de route qui vérifie si l'utilisateur est connecté avant d'afficher les pages admin. Redirige vers `/connexion` si non authentifié. |
+| `Sidebar.tsx` | Barre de navigation latérale de l'espace administrateur. Contient les liens vers le tableau de bord, les étudiants et les présences, ainsi que le bouton de déconnexion. |
+| `Map.tsx` | Composant d'intégration Google Maps. Permet d'afficher une carte interactive dans l'application si nécessaire. |
+
+#### Composants UI (`client/src/components/ui/`)
+
+Bibliothèque de **40+ composants d'interface** basés sur **shadcn/ui** + **Radix UI**. Ces composants sont accessibles, personnalisables et stylisés avec Tailwind CSS.
+
+| Composant | Usage |
+|---|---|
+| `button.tsx`, `input.tsx`, `label.tsx` | Éléments de formulaire de base |
+| `dialog.tsx`, `sheet.tsx`, `drawer.tsx` | Fenêtres modales et panneaux glissants |
+| `table.tsx`, `pagination.tsx` | Affichage de données tabulaires |
+| `select.tsx`, `checkbox.tsx`, `switch.tsx` | Contrôles de sélection |
+| `card.tsx`, `badge.tsx`, `avatar.tsx` | Éléments d'affichage |
+| `tabs.tsx`, `accordion.tsx` | Navigation par onglets et accordéons |
+| `chart.tsx` | Graphiques (basé sur Recharts) |
+| `sidebar.tsx` | Structure de la barre latérale admin |
+| `sonner.tsx` | Notifications toast (messages de succès/erreur) |
+| `spinner.tsx`, `skeleton.tsx` | Indicateurs de chargement |
+| `tooltip.tsx`, `popover.tsx`, `hover-card.tsx` | Infobulles et cartes au survol |
+
+---
+
+### 🔧 Contextes (`client/src/contexts/`)
+
+Fournisseurs de données globales accessibles partout dans l'application via `useContext`.
+
+| Fichier | Rôle |
+|---|---|
+| `AuthContext.tsx` | Gère l'état d'authentification global : connexion, déconnexion, profil utilisateur, mise à jour du mot de passe. Communique avec l'endpoint `/api/auth` de l'API Java. |
+| `ThemeContext.tsx` | Gère le thème de l'application (clair/sombre). Permet de basculer entre les deux modes via le hook `useTheme()`. |
+
+---
+
+### 🪝 Hooks (`client/src/hooks/`)
+
+Hooks React personnalisés encapsulant de la logique réutilisable.
+
+| Fichier | Rôle |
+|---|---|
+| `useMobile.tsx` | Détecte si l'utilisateur est sur un appareil mobile (< 768px). Utilisé pour adapter l'interface (ex: fermer la sidebar sur mobile). |
+| `useComposition.ts` | Gère les événements de composition IME (saisie de caractères asiatiques). Évite les soumissions prématurées de formulaires. |
+| `usePersistFn.ts` | Retourne une référence stable à une fonction qui ne change pas entre les rendus. Évite des re-rendus inutiles dans les composants enfants. |
+
+---
+
+### 📚 Bibliothèques (`client/src/lib/`)
+
+Modules de logique métier et d'accès aux données.
+
+| Fichier | Rôle |
+|---|---|
+| `adminApi.ts` | **Couche d'accès à l'API Java.** Contient toutes les fonctions HTTP (`fetchStudents`, `createStudent`, `scanAttendance`, `saveCourseSettingsApi`, etc.) qui communiquent avec le backend Spring Boot sur `http://localhost:8080`. |
+| `adminData.ts` | Données locales de l'administration (état persisté dans le navigateur, données par défaut). Utilisé comme fallback quand l'API Java est indisponible. |
+| `biometricSensor.ts` | Interface de communication avec le **capteur d'empreinte biométrique**. Gère la connexion, la lecture et le traitement des données du capteur. |
+| `serialSensor.ts` | Communication bas niveau avec le capteur via le **port série** (Web Serial API). Envoie des commandes et reçoit les données brutes du lecteur d'empreinte. |
+| `utils.ts` | Fonctions utilitaires générales : formatage de dates, fusion de classes CSS (`cn()`), calculs divers. |
+
+---
+
+## ☕ Dossier `java-api/` — Backend Spring Boot
+
+API REST Java qui gère toutes les données persistantes en base de données MariaDB.
+
+**Démarrage :**
+```bash
+JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home \
+  /opt/homebrew/Cellar/maven/3.9.16/bin/mvn -f java-api/pom.xml spring-boot:run
+```
+**URL de base :** `http://localhost:8080/api`
+
+### Fichiers de configuration
+
+| Fichier | Rôle |
+|---|---|
+| `pom.xml` | Fichier Maven principal. Déclare les dépendances Java (Spring Boot, Spring Data JPA, MariaDB Driver, Lombok) et configure le build. |
+| `src/main/resources/application.yml` | Configuration Spring Boot : URL de la base de données, port du serveur (8080), stratégie JPA (`ddl-auto: update`), paramètres de connexion MariaDB. |
+| `BioPresenceApplication.java` | Point d'entrée de l'application Spring Boot. Contient la méthode `main()` qui démarre le serveur embarqué Tomcat. |
+
+### Architecture en couches
+
+```
+controller/ → dto/ → service/ → repository/ → entity/ → Base de données
+```
+
+#### `entity/` — Entités JPA (tables de la base de données)
+
+| Fichier | Table BDD | Rôle |
+|---|---|---|
+| `Administrateur.java` | `administrateurs` | Compte administrateur (email, mot de passe, nom) |
+| `Etudiant.java` | `etudiants` | Étudiant (nom, matricule, département, niveau, empreinte biométrique) |
+| `Presence.java` | `presences` | Enregistrement de présence (étudiant, horodatage, type entrée/sortie) |
+| `ParametresCours.java` | `parametres_cours` | Configuration du cours (nom, jours, heures, seuil d'éligibilité) |
+| `StatutEtudiant.java` | — | Énumération des statuts d'un étudiant (actif, inactif) |
+| `StatutPresence.java` | — | Énumération des types de présence (entrée, sortie, absence) |
+
+#### `repository/` — Accès base de données
+
+Interfaces Spring Data JPA. Chaque repository fournit automatiquement les opérations CRUD (Create, Read, Update, Delete) sur sa table.
+
+| Fichier | Rôle |
+|---|---|
+| `AdministrateurRepository.java` | Requêtes sur la table `administrateurs` (ex: recherche par email) |
+| `EtudiantRepository.java` | Requêtes sur la table `etudiants` (ex: recherche par matricule, par empreinte) |
+| `PresenceRepository.java` | Requêtes sur la table `presences` (ex: présences du jour, par étudiant) |
+| `ParametresCoursRepository.java` | Requêtes sur la table `parametres_cours` |
+
+#### `service/` — Logique métier
+
+Contient toute la logique de traitement entre les controllers et la base de données.
+
+| Fichier | Rôle |
+|---|---|
+| `AdministrateurService.java` | Authentification, gestion du profil admin, initialisation du compte par défaut (`seedDefault()`). Identifiants par défaut : `admin@usb.org` / `Josue2026`. |
+| `EtudiantService.java` | Création, modification, suppression d'étudiants, vérification des doublons de matricule. |
+| `PresenceService.java` | Enregistrement des scans biométriques, calcul du taux de présence, vérification de l'éligibilité aux examens. |
+| `ParametresCoursService.java` | Gestion des paramètres de cours (nom, horaires, seuil d'assiduité). |
+
+#### `controller/` — Endpoints REST (routes API)
+
+Exposent les fonctionnalités via HTTP. Tous les endpoints sont préfixés par `/api`.
+
+| Fichier | Préfixe | Endpoints principaux |
+|---|---|---|
+| `AdministrateurController.java` | `/api/auth` | `POST /login`, `GET /profile/{id}`, `PUT /profile/{id}/password` |
+| `EtudiantController.java` | `/api/etudiants` | `GET /`, `POST /`, `PUT /{id}`, `DELETE /{id}` |
+| `PresenceController.java` | `/api/presences` | `POST /scan`, `GET /today`, `GET /etudiant/{id}` |
+| `ParametresCoursController.java` | `/api/parametres-cours` | `GET /`, `POST /` |
+| `RapportController.java` | `/api/rapports` | Génération de rapports de présence |
+| `SanteController.java` | `/api/sante` | `GET /ping` — vérifie que l'API est en ligne |
+
+#### `dto/` — Objets de transfert de données
+
+Classes utilisées pour structurer les données échangées entre le frontend et le backend (entrées des requêtes et sorties des réponses).
+
+| Fichier | Sens | Rôle |
+|---|---|---|
+| `ConnexionRequete.java` | Entrée | Email + mot de passe pour la connexion |
+| `EtudiantRequete.java` | Entrée | Données pour créer/modifier un étudiant |
+| `PresenceScanRequete.java` | Entrée | Données du scan biométrique (ID empreinte) |
+| `ParametresCoursRequete.java` | Entrée | Paramètres du cours à enregistrer |
+| `MajProfilRequete.java` | Entrée | Mise à jour du profil administrateur |
+| `AdministrateurReponse.java` | Sortie | Données de l'admin renvoyées au frontend |
+| `EtudiantReponse.java` | Sortie | Données étudiant renvoyées au frontend |
+| `PresenceReponse.java` | Sortie | Données de présence renvoyées au frontend |
+| `ParametresCoursReponse.java` | Sortie | Paramètres de cours renvoyés au frontend |
+| `ScanReponse.java` | Sortie | Résultat d'un scan biométrique |
+| `LigneEligibiliteReponse.java` | Sortie | Résumé d'éligibilité d'un étudiant aux examens |
+
+#### `config/` — Configuration Spring
+
+| Fichier | Rôle |
+|---|---|
+| `ConfigCors.java` | Configure les autorisations CORS pour permettre au frontend React (port 3000) d'appeler l'API (port 8080) sans être bloqué par le navigateur. |
+| `InitialiseurDonnees.java` | Exécuté au démarrage de l'API. Appelle `seedDefault()` pour s'assurer qu'un compte administrateur existe toujours en base de données. |
+
+#### `exception/` — Gestion des erreurs
+
+| Fichier | Rôle |
+|---|---|
+| `ExceptionIntrouvable.java` | Exception personnalisée levée quand une ressource (étudiant, présence) n'est pas trouvée en base. Retourne un HTTP 404. |
+| `GestionnaireExceptions.java` | Intercepteur global des exceptions (`@ControllerAdvice`). Transforme les exceptions Java en réponses HTTP JSON propres avec le bon code d'erreur. |
+
+---
+
+## 🖥️ Dossier `server/` — Serveur Express (Production)
+
+Serveur Node.js Express utilisé uniquement en **production** pour servir les fichiers statiques du frontend compilé.
+
+| Fichier | Rôle |
+|---|---|
+| `index.ts` | Point d'entrée du serveur Express. Sert les fichiers du build Vite (`dist/public`) et redirige toutes les routes vers `index.html` pour le routage côté client. |
+| `src/domain/auth/` | Modèles domaine pour l'authentification (User, AuthRepository, AuthErrors). |
+| `src/application/auth/LoginUseCase.ts` | Cas d'usage de connexion (architecture DDD). |
+| `src/infrastructure/config/env.ts` | Lecture des variables d'environnement du serveur. |
+| `ARCHITECTURE.md` | Documentation de l'architecture du serveur Node. |
+
+---
+
+## 🩹 Dossier `patches/`
+
+| Fichier | Rôle |
+|---|---|
+| `patches/wouter@3.7.1.patch` | Correctif appliqué automatiquement par pnpm sur la librairie de routage **Wouter**. Corrige un comportement non désiré de la version 3.7.1. **Ne pas supprimer** — pnpm l'applique à chaque `pnpm install`. |
+
+---
+
+## 🚀 Démarrage du projet
+
+### Prérequis
+- Java 21 + Maven 3.9+
+- MariaDB (XAMPP) démarré sur le port 3306
+- Node.js + pnpm
+
+### 1. Démarrer la base de données
+Démarrer XAMPP et activer le service **MySQL/MariaDB**.
+Base de données : `biopresence` (créée automatiquement par Spring Boot).
+
+### 2. Démarrer l'API Java
+```bash
+JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home \
+  /opt/homebrew/Cellar/maven/3.9.16/bin/mvn -f java-api/pom.xml spring-boot:run
+```
+→ API disponible sur `http://localhost:8080`
+
+### 3. Démarrer le frontend
+```bash
+pnpm install
+pnpm dev
+```
+→ Frontend disponible sur `http://localhost:3000`
+
+### Identifiants administrateur par défaut
+| Champ | Valeur |
+|---|---|
+| Email | `admin@usb.org` |
+| Mot de passe | `Josue2026` |
