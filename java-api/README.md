@@ -3,15 +3,15 @@
 API REST Spring Boot pour le backend biométrique de BioPresence.
 
 ## Stack
-- Java 17
-- Spring Boot 3.2
+- Java 25
+- Spring Boot 3.5
 - Spring Web
 - Spring Data JPA
 - Validation
 - H2 en base de developpement
 
 ## Lancer le projet
-1. Installer Java 17 et Maven.
+1. Installer Java 25 et Maven.
 2. Aller dans ce dossier:
    `cd java-api`
 3. Demarrer l'API:

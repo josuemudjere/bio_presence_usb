@@ -5,7 +5,7 @@
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>3.2.5</version>
+    <version>3.5.16</version>
     <relativePath />
   </parent>
 
@@ -16,7 +16,7 @@
   <description>REST API Java pour BioPresence</description>
 
   <properties>
-    <java.version>21</java.version>
+    <java.version>25</java.version>
   </properties>
 
   <dependencies>
