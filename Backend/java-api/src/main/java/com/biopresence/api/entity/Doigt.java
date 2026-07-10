@@ -1,0 +1,14 @@
+package com.biopresence.api.entity;
+
+public enum Doigt {
+  POUCE_DROIT,
+  INDEX_DROIT,
+  MAJEUR_DROIT,
+  ANNULAIRE_DROIT,
+  AURICULAIRE_DROIT,
+  POUCE_GAUCHE,
+  INDEX_GAUCHE,
+  MAJEUR_GAUCHE,
+  ANNULAIRE_GAUCHE,
+  AURICULAIRE_GAUCHE
+}

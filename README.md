@@ -8,10 +8,13 @@ Application web full-stack permettant la gestion des présences étudiantes via 
 
 ```
 Projet_tutoré_bio/
-├── assets/                  → Images et ressources statiques
-├── client/                  → Application frontend (React + TypeScript)
-├── java-api/                → Backend REST (Spring Boot + MariaDB)
-├── server/                  → Serveur Express (déploiement production)
+├── Frontend/
+│   ├── assets/              → Images et ressources statiques
+│   ├── client/              → Application frontend (React + TypeScript)
+│   └── shared/              → Constantes et modules partagés frontend
+├── Backend/
+│   ├── java-api/            → Backend REST (Spring Boot + MariaDB)
+│   └── server/              → Serveur Express (déploiement production)
 ├── patches/                 → Correctifs de dépendances
 ├── package.json             → Dépendances et scripts du projet
 ├── vite.config.ts           → Configuration du bundler Vite
@@ -38,30 +41,30 @@ Projet_tutoré_bio/
 
 ---
 
-## 🖼️ Dossier `assets/`
+## 🖼️ Dossier `Frontend/assets/`
 
 | Fichier | Rôle |
 |---|---|
-| `assets/images/bio.png` | Logo principal de l'application BioPresence. Importé dans la page d'accueil, la page de connexion et la barre latérale. |
+| `Frontend/assets/images/bio.png` | Logo principal de l'application BioPresence. Importé dans la page d'accueil, la page de connexion et la barre latérale. |
 
 ---
 
-## 🌐 Dossier `client/` — Frontend React
+## 🌐 Dossier `Frontend/client/` — Frontend React
 
 ### Point d'entrée
 
 | Fichier | Rôle |
 |---|---|
-| `client/index.html` | Page HTML racine chargée par le navigateur. Contient le `<div id="root">` où React monte l'application. |
-| `client/src/main.tsx` | Point d'entrée JavaScript de l'application React. Monte le composant `<App />` dans le DOM et active le mode strict de React. |
-| `client/src/App.tsx` | Composant racine qui configure le **routeur** (Wouter), les providers globaux (Auth, Thème, Tooltip) et définit toutes les routes de l'application (`/accueil`, `/connexion`, `/admin/*`). |
-| `client/src/index.css` | Feuille de styles globale. Importe Tailwind CSS, définit les variables de couleur, le thème clair/sombre et les utilitaires CSS personnalisés. |
-| `client/src/const.ts` | Constantes globales partagées dans tout le frontend (valeurs fixes, configurations communes). |
-| `client/public/bio.png` | Copie du logo accessible directement via l'URL `/bio.png` (utilisée comme favicon ou dans le HTML). |
+| `Frontend/client/index.html` | Page HTML racine chargée par le navigateur. Contient le `<div id="root">` où React monte l'application. |
+| `Frontend/client/src/main.tsx` | Point d'entrée JavaScript de l'application React. Monte le composant `<App />` dans le DOM et active le mode strict de React. |
+| `Frontend/client/src/App.tsx` | Composant racine qui configure le **routeur** (Wouter), les providers globaux (Auth, Thème, Tooltip) et définit toutes les routes de l'application (`/accueil`, `/connexion`, `/admin/*`). |
+| `Frontend/client/src/index.css` | Feuille de styles globale. Importe Tailwind CSS, définit les variables de couleur, le thème clair/sombre et les utilitaires CSS personnalisés. |
+| `Frontend/client/src/const.ts` | Constantes globales partagées dans tout le frontend (valeurs fixes, configurations communes). |
+| `Frontend/client/public/bio.png` | Copie du logo accessible directement via l'URL `/bio.png` (utilisée comme favicon ou dans le HTML). |
 
 ---
 
-### 📄 Pages (`client/src/pages/`)
+### 📄 Pages (`Frontend/client/src/pages/`)
 
 Chaque fichier correspond à une page complète de l'application.
 
@@ -75,7 +78,7 @@ Chaque fichier correspond à une page complète de l'application.
 
 ---
 
-### 🧩 Composants (`client/src/components/`)
+### 🧩 Composants (`Frontend/client/src/components/`)
 
 Composants réutilisables utilisés dans plusieurs pages.
 
@@ -86,7 +89,7 @@ Composants réutilisables utilisés dans plusieurs pages.
 | `Sidebar.tsx` | Barre de navigation latérale de l'espace administrateur. Contient les liens vers le tableau de bord, les étudiants et les présences, ainsi que le bouton de déconnexion. |
 | `Map.tsx` | Composant d'intégration Google Maps. Permet d'afficher une carte interactive dans l'application si nécessaire. |
 
-#### Composants UI (`client/src/components/ui/`)
+#### Composants UI (`Frontend/client/src/components/ui/`)
 
 Bibliothèque de **40+ composants d'interface** basés sur **shadcn/ui** + **Radix UI**. Ces composants sont accessibles, personnalisables et stylisés avec Tailwind CSS.
 
@@ -106,7 +109,7 @@ Bibliothèque de **40+ composants d'interface** basés sur **shadcn/ui** + **Rad
 
 ---
 
-### 🔧 Contextes (`client/src/contexts/`)
+### 🔧 Contextes (`Frontend/client/src/contexts/`)
 
 Fournisseurs de données globales accessibles partout dans l'application via `useContext`.
 
@@ -117,7 +120,7 @@ Fournisseurs de données globales accessibles partout dans l'application via `us
 
 ---
 
-### 🪝 Hooks (`client/src/hooks/`)
+### 🪝 Hooks (`Frontend/client/src/hooks/`)
 
 Hooks React personnalisés encapsulant de la logique réutilisable.
 
@@ -129,7 +132,7 @@ Hooks React personnalisés encapsulant de la logique réutilisable.
 
 ---
 
-### 📚 Bibliothèques (`client/src/lib/`)
+### 📚 Bibliothèques (`Frontend/client/src/lib/`)
 
 Modules de logique métier et d'accès aux données.
 
@@ -138,19 +141,50 @@ Modules de logique métier et d'accès aux données.
 | `adminApi.ts` | **Couche d'accès à l'API Java.** Contient toutes les fonctions HTTP (`fetchStudents`, `createStudent`, `scanAttendance`, `saveCourseSettingsApi`, etc.) qui communiquent avec le backend Spring Boot sur `http://localhost:8080`. |
 | `adminData.ts` | Données locales de l'administration (état persisté dans le navigateur, données par défaut). Utilisé comme fallback quand l'API Java est indisponible. |
 | `biometricSensor.ts` | Interface de communication avec le **capteur d'empreinte biométrique**. Gère la connexion, la lecture et le traitement des données du capteur. |
-| `serialSensor.ts` | Communication bas niveau avec le capteur via le **port série** (Web Serial API). Envoie des commandes et reçoit les données brutes du lecteur d'empreinte. |
+| `serialSensor.ts` | Passerelle frontend vers le capteur via **MQTT sur WebSocket**. Ouvre la connexion broker, publie les commandes de scan et consomme les événements du capteur. |
+| `mqttSensorProtocol.ts` | Contrat partagé du protocole MQTT du capteur: topics par défaut, version de protocole, types de messages `command`, `events`, `status`. |
 | `utils.ts` | Fonctions utilitaires générales : formatage de dates, fusion de classes CSS (`cn()`), calculs divers. |
 
 ---
 
-## ☕ Dossier `java-api/` — Backend Spring Boot
+## ☕ Dossier `Backend/java-api/` — Backend Spring Boot
+
+## 📡 Protocole MQTT du capteur
+
+Le contrat exact utilisé par le frontend est documenté dans [Frontend/client/src/lib/mqttSensorProtocol.ts](Frontend/client/src/lib/mqttSensorProtocol.ts) pour les types et dans [docs/MQTT_SENSOR_PROTOCOL.md](docs/MQTT_SENSOR_PROTOCOL.md) pour les échanges JSON, les topics et les règles de corrélation `requestId`.
+
+Un firmware NodeMCU ESP8266 compatible avec ce protocole est fourni dans [platformio-projects-main/esp8266-projects/biopresence-nodemcu-mqtt/README.md](platformio-projects-main/esp8266-projects/biopresence-nodemcu-mqtt/README.md).
+
+### Chaîne locale de test MQTT
+
+Le frontend attend par défaut un broker MQTT en WebSocket sur `ws://localhost:9001/mqtt` et des publications sur les topics:
+
+- `biopresence/sensor/command`
+- `biopresence/sensor/events`
+- `biopresence/sensor/status`
+
+Le dépôt fournit maintenant une chaîne locale minimale pour tester ce flux sans carte physique:
+
+```bash
+pnpm mqtt:broker:up
+pnpm mqtt:sensor:mock
+pnpm dev
+```
+
+Ce que chaque commande fait:
+
+- `pnpm mqtt:broker:up`: démarre un broker Eclipse Mosquitto via Docker avec MQTT TCP sur `1884` côté machine locale et MQTT over WebSocket sur `9001`
+- `pnpm mqtt:sensor:mock`: lance un faux capteur qui consomme `command` et publie `status` / `events`
+- `pnpm mqtt:broker:down`: arrête le broker local
+
+Avec cette chaîne active, le bouton `Connecter MQTT` de l'interface admin doit passer à l'état connecté, puis les scans doivent recevoir des réponses simulées.
 
 API REST Java qui gère toutes les données persistantes en base de données MariaDB.
 
 **Démarrage :**
 ```bash
 JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home \
-  /opt/homebrew/Cellar/maven/3.9.16/bin/mvn -f java-api/pom.xml spring-boot:run
+  /opt/homebrew/Cellar/maven/3.9.16/bin/mvn -f Backend/java-api/pom.xml spring-boot:run
 ```
 **URL de base :** `http://localhost:8080/api`
 
@@ -248,7 +282,7 @@ Classes utilisées pour structurer les données échangées entre le frontend et
 
 ---
 
-## 🖥️ Dossier `server/` — Serveur Express (Production)
+## 🖥️ Dossier `Backend/server/` — Serveur Express (Production)
 
 Serveur Node.js Express utilisé uniquement en **production** pour servir les fichiers statiques du frontend compilé.
 
@@ -284,7 +318,7 @@ Base de données : `biopresence` (créée automatiquement par Spring Boot).
 ### 2. Démarrer l'API Java
 ```bash
 JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home \
-  /opt/homebrew/Cellar/maven/3.9.16/bin/mvn -f java-api/pom.xml spring-boot:run
+  /opt/homebrew/Cellar/maven/3.9.16/bin/mvn -f Backend/java-api/pom.xml spring-boot:run
 ```
 → API disponible sur `http://localhost:8080`
 
