@@ -91,7 +91,7 @@ Composants réutilisables utilisés dans plusieurs pages.
 
 #### Composants UI (`Frontend/client/src/components/ui/`)
 
-Bibliothèque de **40+ composants d'interface** basés sur **shadcn/ui** + **Radix UI**. Ces composants sont accessibles, personnalisables et stylisés avec Tailwind CSS.
+Bibliothèque de **40+ composants d'interface** basés sur **shadcn/ui** (bibliothèque de composants UI pour les applications web modernes) + **Radix UI** (une bibliothèque de composants React). Ces composants sont accessibles, personnalisables et stylisés avec Tailwind CSS.
 
 | Composant | Usage |
 |---|---|
