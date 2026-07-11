@@ -4,7 +4,7 @@ Application web full-stack permettant la gestion des présences étudiantes via 
 
 ---
 
-## 🗂️ Structure globale du projet
+##  Structure globale du projet
 
 ```
 Projet_tutoré_bio/
@@ -24,7 +24,7 @@ Projet_tutoré_bio/
 
 ---
 
-## 📁 Fichiers racine
+##  Fichiers racine
 
 | Fichier | Rôle |
 |---|---|
@@ -41,7 +41,7 @@ Projet_tutoré_bio/
 
 ---
 
-## 🖼️ Dossier `Frontend/assets/`
+##  Dossier `Frontend/assets/`
 
 | Fichier | Rôle |
 |---|---|
@@ -49,7 +49,7 @@ Projet_tutoré_bio/
 
 ---
 
-## 🌐 Dossier `Frontend/client/` — Frontend React
+##  Dossier `Frontend/client/` — Frontend React
 
 ### Point d'entrée
 
@@ -64,7 +64,7 @@ Projet_tutoré_bio/
 
 ---
 
-### 📄 Pages (`Frontend/client/src/pages/`)
+###  Pages (`Frontend/client/src/pages/`)
 
 Chaque fichier correspond à une page complète de l'application.
 
@@ -78,7 +78,7 @@ Chaque fichier correspond à une page complète de l'application.
 
 ---
 
-### 🧩 Composants (`Frontend/client/src/components/`)
+###  Composants (`Frontend/client/src/components/`)
 
 Composants réutilisables utilisés dans plusieurs pages.
 
@@ -109,7 +109,7 @@ Bibliothèque de **40+ composants d'interface** basés sur **shadcn/ui** + **Rad
 
 ---
 
-### 🔧 Contextes (`Frontend/client/src/contexts/`)
+###  Contextes (`Frontend/client/src/contexts/`)
 
 Fournisseurs de données globales accessibles partout dans l'application via `useContext`.
 
@@ -120,7 +120,7 @@ Fournisseurs de données globales accessibles partout dans l'application via `us
 
 ---
 
-### 🪝 Hooks (`Frontend/client/src/hooks/`)
+###  Hooks (`Frontend/client/src/hooks/`)
 
 Hooks React personnalisés encapsulant de la logique réutilisable.
 
@@ -132,7 +132,7 @@ Hooks React personnalisés encapsulant de la logique réutilisable.
 
 ---
 
-### 📚 Bibliothèques (`Frontend/client/src/lib/`)
+###  Bibliothèques (`Frontend/client/src/lib/`)
 
 Modules de logique métier et d'accès aux données.
 
@@ -147,9 +147,9 @@ Modules de logique métier et d'accès aux données.
 
 ---
 
-## ☕ Dossier `Backend/java-api/` — Backend Spring Boot
+##  Dossier `Backend/java-api/` — Backend Spring Boot
 
-## 📡 Protocole MQTT du capteur
+##  Protocole MQTT du capteur
 
 Le contrat exact utilisé par le frontend est documenté dans [Frontend/client/src/lib/mqttSensorProtocol.ts](Frontend/client/src/lib/mqttSensorProtocol.ts) pour les types et dans [docs/MQTT_SENSOR_PROTOCOL.md](docs/MQTT_SENSOR_PROTOCOL.md) pour les échanges JSON, les topics et les règles de corrélation `requestId`.
 
@@ -282,7 +282,7 @@ Classes utilisées pour structurer les données échangées entre le frontend et
 
 ---
 
-## 🖥️ Dossier `Backend/server/` — Serveur Express (Production)
+##  Dossier `Backend/server/` — Serveur Express (Production)
 
 Serveur Node.js Express utilisé uniquement en **production** pour servir les fichiers statiques du frontend compilé.
 
@@ -296,7 +296,7 @@ Serveur Node.js Express utilisé uniquement en **production** pour servir les fi
 
 ---
 
-## 🩹 Dossier `patches/`
+##  Dossier `patches/`
 
 | Fichier | Rôle |
 |---|---|
@@ -304,7 +304,7 @@ Serveur Node.js Express utilisé uniquement en **production** pour servir les fi
 
 ---
 
-## 🚀 Démarrage du projet
+##  Démarrage du projet
 
 ### Prérequis
 - Java 21 + Maven 3.9+
