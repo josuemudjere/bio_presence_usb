@@ -147,6 +147,59 @@ Modules de logique métier et d'accès aux données.
 
 ---
 
+##  Comment le frontend communique avec le backend
+
+Le lien entre le frontend React et le backend Spring Boot passe principalement par trois fichiers côté frontend :
+
+| Fichier | Rôle dans la connexion |
+|---|---|
+| `Frontend/client/src/lib/apiBase.ts` | Définit l'URL de base de l'API. Par défaut, le frontend appelle `http://localhost:8080/api`, sauf si `VITE_API_BASE_URL` est défini. |
+| `Frontend/client/src/lib/adminApi.ts` | Contient la couche HTTP principale du projet. C'est ici que sont centralisés les appels `fetch()` vers le backend pour les étudiants, cours, présences, promotions, rapports et paramètres. |
+| `Frontend/client/src/contexts/AuthContext.tsx` | Gère les appels d'authentification (`/api/auth/login`, `/api/auth/profile/{id}`, `/api/auth/profile/{id}/password`). Ce fichier connecte directement le frontend au backend pour la session utilisateur. |
+
+### Flux réel d'un appel frontend vers le backend
+
+Le chemin standard est le suivant :
+
+```text
+Page React -> fonction dans adminApi.ts ou AuthContext.tsx -> URL construite par apiBase.ts -> contrôleur Spring Boot -> service métier -> repository -> base de données
+```
+
+Exemple concret pour la liste des cours :
+
+```text
+Frontend/client/src/pages/AdminCours.tsx
+  -> appelle fetchCours() dans Frontend/client/src/lib/adminApi.ts
+  -> envoie une requête HTTP vers /api/courses
+  -> reçue par Backend/java-api/src/main/java/com/biopresence/api/controller/CoursController.java
+  -> traitée par Backend/java-api/src/main/java/com/biopresence/api/service/CoursService.java
+  -> lue en base via Backend/java-api/src/main/java/com/biopresence/api/persistence/CoursRepository.java
+```
+
+Exemple concret pour la connexion utilisateur :
+
+```text
+Frontend/client/src/pages/Connexion.tsx
+  -> appelle login() dans Frontend/client/src/contexts/AuthContext.tsx
+  -> envoie une requête HTTP vers /api/auth/login
+  -> reçue par Backend/java-api/src/main/java/com/biopresence/api/security/AdministrateurController.java
+  -> traitée par Backend/java-api/src/main/java/com/biopresence/api/security/AuthService.java
+  -> vérifie les comptes administrateur / utilisateur en base
+```
+
+### Fichier de raccord réseau le plus important
+
+Si l'on doit désigner un seul fichier principal de raccord frontend-backend, c'est `Frontend/client/src/lib/adminApi.ts`, car c'est lui qui centralise la majorité des appels HTTP métier.
+
+Pour l'authentification, le fichier clé complémentaire est `Frontend/client/src/contexts/AuthContext.tsx`.
+
+### Autorisation navigateur entre ports différents
+
+En développement, le frontend tourne généralement sur le port `3000` et l'API Java sur le port `8080`.
+Le fichier `Backend/java-api/src/main/java/com/biopresence/api/config/ConfigCors.java` autorise cette communication cross-origin pour que le navigateur ne bloque pas les requêtes.
+
+---
+
 ##  Dossier `Backend/java-api/` — Backend Spring Boot
 
 ##  Protocole MQTT du capteur
