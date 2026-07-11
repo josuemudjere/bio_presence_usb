@@ -212,7 +212,7 @@ Un firmware NodeMCU ESP8266 compatible avec ce protocole est fourni dans [platfo
 
 Le frontend attend par défaut un broker MQTT en WebSocket sur `ws://localhost:9001/mqtt` et des publications sur les topics:
 
-- `biopresence/sensor/command`
+- `biopresence/sensor/command` (SerialSensor.ts)
 - `biopresence/sensor/events`
 - `biopresence/sensor/status`
 
