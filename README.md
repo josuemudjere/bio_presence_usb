@@ -1,10 +1,10 @@
-# BioPresence — Système de Contrôle de Présence Biométrique
+## BioPresence — Système de Contrôle de Présence Biométrique
 
 Application web full-stack permettant la gestion des présences étudiantes via empreinte biométrique, avec un tableau de bord d'administration complet.
 
 ---
 
-##  Structure globale du projet
+## Structure globale du projet
 
 ```
 Projet_tutoré_bio/
