@@ -12,6 +12,7 @@ export interface User {
 export type PublicUser = Omit<User, "password">;
 
 export function toPublicUser(user: User): PublicUser {
+  // Je retire systématiquement le mot de passe avant toute exposition HTTP.
   const { password: _password, ...publicUser } = user;
   return publicUser;
 }

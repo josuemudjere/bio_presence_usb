@@ -33,12 +33,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Je limite la persistance locale aux comptes issus du backend pour éviter des sessions fantômes.
   const isPersistableUser = (candidate: User) => {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     return (candidate.role === 'admin' || candidate.role === 'teacher') && uuidRegex.test(candidate.id);
   };
 
   useEffect(() => {
+    // Je relis d'abord la clé courante puis l'ancienne pour rester compatible avec les anciennes sessions.
     const savedUser = localStorage.getItem(CURRENT_USER_STORAGE_KEY) ?? localStorage.getItem(LEGACY_USER_STORAGE_KEY);
     if (savedUser) {
       try {
@@ -62,6 +64,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let loggedUser: User;
 
       try {
+        // Le flux normal passe par l'API d'authentification exposée par le backend.
         const res = await fetch(`${API_BASE}/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -84,7 +87,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           photoUrl: data.photoUrl,
         };
       } catch (err) {
-        // Fallback local UNIQUEMENT si l'API est injoignable (TypeError = réseau)
+        // Je garde un mode local minimal uniquement pour continuer les démos hors ligne.
         if (err instanceof TypeError && email === 'admin@usb.org' && password === 'admin') {
           loggedUser = { id: 'admin-local', name: 'Administrateur', email, role: 'admin' };
         } else if (err instanceof TypeError && email === 'enseignant@usb.org' && password === 'enseignant') {
@@ -94,6 +97,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
+      // Une authentification réussie met immédiatement le contexte et le stockage local à jour.
       setUser(loggedUser);
       localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(loggedUser));
       return loggedUser;
@@ -107,7 +111,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateProfile = async (name: string, photoUrl?: string, email?: string) => {
     if (!user) return;
 
-    // Si l'utilisateur est en mode hors-ligne (id non-UUID), mise à jour locale uniquement
+    // En mode hors ligne, je simule seulement la mise à jour pour garder l'expérience cohérente.
     if (!uuidRegex.test(user.id)) {
       const updated: User = { ...user, name, email: email ?? user.email, photoUrl: photoUrl ?? user.photoUrl };
       setUser(updated);
@@ -115,6 +119,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
+    // En mode connecté, le profil reste piloté par la source de vérité backend.
     const res = await fetch(`${API_BASE}/auth/profile/${user.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -143,6 +148,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!uuidRegex.test(user.id)) {
       throw new Error('Modification du mot de passe non disponible en mode hors-ligne');
     }
+
+    // Le mot de passe ne transite jamais par le stockage local, uniquement par l'API dédiée.
     const res = await fetch(`${API_BASE}/auth/profile/${user.id}/password`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -155,6 +162,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    // La déconnexion doit nettoyer les deux clés tant que l'ancien format existe encore.
     setUser(null);
     localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
     localStorage.removeItem(LEGACY_USER_STORAGE_KEY);

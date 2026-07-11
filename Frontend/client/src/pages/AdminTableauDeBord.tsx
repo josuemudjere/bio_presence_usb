@@ -53,6 +53,7 @@ const adminHighlights = [
 ];
 
 export default function AdminDashboard() {
+  // Le tableau de bord admin synthétise l'activité du registre et l'état du capteur.
   const [students, setStudents] = useState<Student[]>(() => loadStudents());
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => loadAttendanceRecords());
   const [exportsCount, setExportsCount] = useState<number>(() => loadExportsCount());
@@ -62,6 +63,7 @@ export default function AdminDashboard() {
   useEffect(() => serialSensor.onConnectionChange(setConnectionState), []);
 
   useEffect(() => {
+    // Je rafraîchis les métriques quand la page reprend le focus ou qu'un autre onglet modifie le stockage.
     const refreshMetrics = () => {
       setStudents(loadStudents());
       setAttendanceRecords(loadAttendanceRecords());
@@ -77,6 +79,7 @@ export default function AdminDashboard() {
     };
   }, []);
 
+  // Ces bornes temporelles servent à agréger les statistiques quotidiennes et hebdomadaires.
   const today = useMemo(() => new Intl.DateTimeFormat('sv-SE').format(new Date()), []);
   const todayLabel = useMemo(
     () => new Intl.DateTimeFormat('fr-FR', { dateStyle: 'full' }).format(new Date()),
@@ -88,6 +91,7 @@ export default function AdminDashboard() {
 
   const [statFilter, setStatFilter] = useState<'daily' | 'weekly'>('daily');
 
+  // Je construis une fenêtre glissante sur sept jours pour alimenter les graphes de tendance.
   const last7Days = useMemo(() => {
     return Array.from({ length: 7 }, (_, i) => {
       const d = new Date();
@@ -205,6 +209,7 @@ export default function AdminDashboard() {
         </header>
 
         <div className="p-8 space-y-8">
+          {/* Ce bandeau remonte l'état de connexion réel du capteur sans quitter le tableau de bord. */}
           <div className={`rounded-2xl border p-4 flex items-center justify-between shadow-sm ${
             connectionState === 'connected'
               ? 'border-emerald-200 bg-emerald-50'

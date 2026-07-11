@@ -21,10 +21,12 @@ public class CoursService {
   }
 
   public List<CoursReponse> listAll() {
+    // Le frontend consomme toujours des DTO de réponse, jamais les entités directement.
     return coursRepository.findAll().stream().map(this::toResponse).toList();
   }
 
   public List<Cours> listEntities() {
+    // Cette variante reste utile pour d'autres services internes qui ont besoin des entités complètes.
     return coursRepository.findAll();
   }
 
@@ -33,11 +35,13 @@ public class CoursService {
   }
 
   public Cours findEntity(Long id) {
+    // La recherche centralisée garantit le même message métier pour tous les appels.
     return coursRepository.findById(id)
         .orElseThrow(() -> new ExceptionIntrouvable("Cours introuvable."));
   }
 
   public CoursReponse create(CoursRequete request) {
+    // Je dérive d'abord les valeurs par défaut avant d'instancier le cours métier.
     int nbJours = resolveNbJours(request);
     int nbHeures = resolveNbHeures(request);
     int seuilEligibilite = resolveSeuilEligibilite(request);
@@ -55,6 +59,7 @@ public class CoursService {
   }
 
   public CoursReponse update(Long id, CoursRequete request) {
+    // La mise à jour repart toujours de l'entité persistée pour préserver son identité JPA.
     Cours cours = findEntity(id);
     cours.nom = request.nom().trim();
     cours.nbJours = resolveNbJours(request);
@@ -68,6 +73,7 @@ public class CoursService {
   }
 
   private void applyAcademicFields(Cours cours, CoursRequete request) {
+    // Tous les champs secondaires sont regroupés ici pour partager la même logique entre create et update.
     cours.code = normalizeNullable(request.code());
     cours.intitule = normalizeNullable(request.intitule());
     cours.credits = request.credits();
@@ -82,10 +88,12 @@ public class CoursService {
   }
 
   private int resolveNbJours(CoursRequete request) {
+    // Un cours sans précision reste planifié sur un seul jour.
     return request.nbJours() != null && request.nbJours() > 0 ? request.nbJours() : 1;
   }
 
   private int resolveNbHeures(CoursRequete request) {
+    // Je réutilise le volume horaire si nbHeures n'est pas renseigné explicitement.
     if (request.nbHeures() != null && request.nbHeures() > 0) {
       return request.nbHeures();
     }
@@ -98,6 +106,7 @@ public class CoursService {
   }
 
   private int resolveSeuilEligibilite(CoursRequete request) {
+    // Le seuil standard reste fixé à 75 % tant qu'aucune valeur n'est fournie.
     return request.seuilEligibilite() != null && request.seuilEligibilite() > 0 ? request.seuilEligibilite() : 75;
   }
 
@@ -107,6 +116,7 @@ public class CoursService {
   }
 
   public CoursReponse toResponse(Cours cours) {
+    // Je reconstruis un DTO plat pour découpler la réponse HTTP de la structure interne JPA.
     return new CoursReponse(
         cours.id,
         cours.nom,
@@ -130,6 +140,7 @@ public class CoursService {
   }
 
   private String normalizeNullable(String value) {
+    // Une chaîne vide n'apporte pas d'information métier, je la convertis donc en null.
     if (value == null) {
       return null;
     }

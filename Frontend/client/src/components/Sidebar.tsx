@@ -17,12 +17,12 @@ export default function Sidebar({ userName = 'Administrateur' }: SidebarProps) {
   const [location, setLocation] = useLocation();
   const [profileOpen, setProfileOpen] = useState(false);
 
-  // Infos générales
+  // Cet état alimente le formulaire de profil indépendamment des valeurs déjà persistées.
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [photoPreview, setPhotoPreview] = useState<string | undefined>(undefined);
 
-  // Changement de mot de passe
+  // Ces champs restent isolés pour éviter de mélanger les flux profil et sécurité.
   const [currentPwd, setCurrentPwd] = useState('');
   const [newPwd, setNewPwd] = useState('');
   const [confirmPwd, setConfirmPwd] = useState('');
@@ -32,11 +32,12 @@ export default function Sidebar({ userName = 'Administrateur' }: SidebarProps) {
   const [saveSuccess, setSaveSuccess] = useState('');
   const photoInputRef = useRef<HTMLInputElement>(null);
 
-  // Visibilité des mots de passe
+  // La visibilité est pilotée champ par champ pour ne pas surprendre l'utilisateur.
   const [showCurrentPwd, setShowCurrentPwd] = useState(false);
   const [showNewPwd, setShowNewPwd] = useState(false);
   const [showConfirmPwd, setShowConfirmPwd] = useState(false);
 
+  // Ces dérivés me permettent de garder le rendu simple et sans duplication de logique.
   const displayName = user?.name ?? userName;
   const avatarUrl = user?.photoUrl;
   const isAdmin = user?.role === 'admin';
@@ -44,6 +45,7 @@ export default function Sidebar({ userName = 'Administrateur' }: SidebarProps) {
   const initials = displayName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
   const handleOpenProfile = () => {
+    // À l'ouverture, je repars toujours des données de session courantes pour éviter un formulaire sale.
     setEditName(displayName);
     setEditEmail(user?.email ?? '');
     setPhotoPreview(avatarUrl);
@@ -56,6 +58,7 @@ export default function Sidebar({ userName = 'Administrateur' }: SidebarProps) {
   };
 
   const handlePhotoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Je redimensionne côté client pour garder un avatar léger avant envoi ou stockage local.
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 2 * 1024 * 1024) {
@@ -82,6 +85,7 @@ export default function Sidebar({ userName = 'Administrateur' }: SidebarProps) {
   };
 
   const handleSaveProfile = async () => {
+    // Le profil et la sécurité ont chacun leur message de retour mais partagent le même verrou d'enregistrement.
     setSaveError('');
     setSaveSuccess('');
     setSaving(true);
@@ -96,6 +100,7 @@ export default function Sidebar({ userName = 'Administrateur' }: SidebarProps) {
   };
 
   const handleSavePassword = async () => {
+    // Je valide d'abord localement les cas simples pour éviter un aller-retour backend inutile.
     setSaveError('');
     setSaveSuccess('');
     if (!currentPwd) { setSaveError('Entrez votre mot de passe actuel.'); return; }
@@ -116,10 +121,12 @@ export default function Sidebar({ userName = 'Administrateur' }: SidebarProps) {
   };
 
   const handleLogout = () => {
+    // La déconnexion invalide la session puis renvoie explicitement vers l'écran public.
     logout();
     setLocation('/connexion');
   };
 
+  // Le menu est construit à partir du rôle pour garder une seule sidebar pour tous les profils.
   const menuItems = isAdmin
     ? [
         { icon: LayoutDashboard, label: "Vue d'ensemble", href: '/admin/tableau-de-bord' },

@@ -30,6 +30,7 @@ const USERS: User[] = [
 
 export class InMemoryAuthRepository implements AuthRepository {
   async findByEmail(email: string): Promise<User | null> {
+    // Ce repository sert uniquement de source temporaire tant qu'aucune vraie persistance n'est branchée.
     const normalizedEmail = email.trim().toLowerCase();
     return USERS.find((user) => user.email.toLowerCase() === normalizedEmail) ?? null;
   }

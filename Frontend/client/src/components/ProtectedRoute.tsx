@@ -14,6 +14,7 @@ export default function ProtectedRoute({ children, requiredRole, requiredRoles }
   const allowedRoles = requiredRoles ?? (requiredRole ? [requiredRole] : undefined);
 
   useEffect(() => {
+    // La redirection reste centralisée ici pour éviter de répéter la même garde dans chaque page.
     if (!isLoading && !isAuthenticated) {
       setLocation('/connexion');
     } else if (!isLoading && allowedRoles && (!user || !allowedRoles.includes(user.role))) {
@@ -21,6 +22,7 @@ export default function ProtectedRoute({ children, requiredRole, requiredRoles }
     }
   }, [isAuthenticated, isLoading, allowedRoles, user, setLocation]);
 
+  // J'affiche le même loader que le routeur principal pour garder une expérience homogène.
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -32,6 +34,7 @@ export default function ProtectedRoute({ children, requiredRole, requiredRoles }
     );
   }
 
+  // Une route interdite ne rend rien ici, car la redirection est déjà partie dans l'effet.
   if (!isAuthenticated || (allowedRoles && (!user || !allowedRoles.includes(user.role)))) {
     return null;
   }

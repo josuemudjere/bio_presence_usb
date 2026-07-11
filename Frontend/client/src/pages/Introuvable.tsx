@@ -7,10 +7,12 @@ export default function NotFound() {
   const [, setLocation] = useLocation();
 
   const handleGoHome = () => {
+    // Je renvoie vers la racine pour laisser le routeur rediriger selon l'état de session.
     setLocation("/");
   };
 
   return (
+    // Cette page de secours évite un écran vide quand une route n'existe pas ou plus.
     <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
       <Card className="w-full max-w-lg mx-4 shadow-lg border-0 bg-white/80 backdrop-blur-sm">
         <CardContent className="pt-8 pb-8 text-center">

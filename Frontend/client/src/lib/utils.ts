@@ -2,10 +2,12 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
+  // Je fusionne les classes conditionnelles en laissant Tailwind résoudre les collisions finales.
   return twMerge(clsx(inputs));
 }
 
 export function createUuid(): string {
+  // Je préfère l'UUID natif quand il existe, sinon je reproduis un v4 côté client.
   if (typeof globalThis.crypto?.randomUUID === "function") {
     return globalThis.crypto.randomUUID();
   }
@@ -27,6 +29,7 @@ export function createUuid(): string {
 }
 
 export function parseFingerprintIds(value?: string | null): string[] {
+  // Plusieurs empreintes peuvent être stockées dans une seule chaîne séparée par des virgules.
   if (!value) {
     return [];
   }
@@ -38,6 +41,7 @@ export function parseFingerprintIds(value?: string | null): string[] {
 }
 
 export function hasFingerprintId(value: string | null | undefined, fingerprintId: string): boolean {
+  // Toutes les comparaisons passent en majuscules pour ignorer les variations de casse du capteur.
   const normalizedFingerprintId = fingerprintId.trim().toUpperCase();
   if (!normalizedFingerprintId) {
     return false;
@@ -47,6 +51,7 @@ export function hasFingerprintId(value: string | null | undefined, fingerprintId
 }
 
 export function appendFingerprintId(value: string | null | undefined, fingerprintId: string): string {
+  // J'empêche l'ajout de doublons tout en conservant le format de stockage existant.
   const normalizedFingerprintId = fingerprintId.trim().toUpperCase();
   const ids = parseFingerprintIds(value);
 

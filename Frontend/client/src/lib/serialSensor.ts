@@ -38,6 +38,7 @@ function isOperationalStatus(state: SensorStatusMessage['state'] | undefined): b
 }
 
 function buildDefaultBrokerUrl(): string {
+  // En local, le front se branche automatiquement sur le broker WebSocket attendu par la stack MQTT.
   if (typeof window === 'undefined') {
     return 'ws://localhost:9001/mqtt';
   }
@@ -47,6 +48,7 @@ function buildDefaultBrokerUrl(): string {
 }
 
 function getMqttConfig(): SensorMqttConfig {
+  // Toute la config MQTT reste pilotable par variables d'environnement avec des valeurs sûres par défaut.
   const baseTopic = normalizeMqttBaseTopic(
     import.meta.env.VITE_MQTT_BASE_TOPIC as string | undefined,
     DEFAULT_SENSOR_MQTT_BASE_TOPIC
@@ -99,6 +101,7 @@ class SerialSensorService {
   }
 
   private setState(state: ConnectionState): void {
+    // Chaque changement d'état est diffusé aux écrans qui affichent la santé du capteur.
     this._state = state;
     this.listeners.forEach((listener) => listener(state));
   }
@@ -108,6 +111,7 @@ class SerialSensorService {
   }
 
   getSupportError(): string | null {
+    // Je remonte ici les causes connues qui empêchent la connexion avant même d'essayer MQTT.
     if (typeof window === 'undefined') {
       return 'Client MQTT indisponible dans cet environnement.';
     }
@@ -128,6 +132,7 @@ class SerialSensorService {
   }
 
   private isExpectedSensor(sensorId: string | undefined): boolean {
+    // Le client n'accepte que le capteur attendu pour éviter un routage accidentel sur un autre appareil.
     if (!sensorId || sensorId.trim().length === 0) {
       return false;
     }
@@ -154,6 +159,7 @@ class SerialSensorService {
   }
 
   async connect(): Promise<void> {
+    // La connexion est volontairement explicite pour donner un feedback utilisateur clair.
     const supportError = this.getSupportError();
     if (supportError) {
       throw new Error(supportError);
@@ -196,6 +202,7 @@ class SerialSensorService {
           }
 
           try {
+            // Une fois connecté au broker, je vérifie encore que le capteur ciblé répond vraiment.
             await this.ensureSensorAvailable(SENSOR_AVAILABILITY_TIMEOUT_MS, true);
             this.setState('connected');
             resolve();
@@ -219,6 +226,7 @@ class SerialSensorService {
   }
 
   async disconnect(): Promise<void> {
+    // La déconnexion force aussi l'annulation des scans et des vérifications en attente.
     this.cancelPending(new Error('Capteur MQTT déconnecté manuellement.'));
     this.cancelAvailabilityCheck(new Error('Vérification du capteur interrompue.'));
     const client = this.client;
@@ -241,6 +249,7 @@ class SerialSensorService {
   }
 
   private handleClose = () => {
+    // Une fermeture réseau ramène systématiquement le service à un état propre et notifie l'UI.
     if (this._state === 'disconnected') {
       return;
     }
@@ -267,6 +276,7 @@ class SerialSensorService {
   }
 
   private handleMessage = (topic: string, payload: Uint8Array) => {
+    // Je sépare d'abord les messages de statut des événements de scan pour simplifier leur traitement.
     if (topic === this.config.statusTopic) {
       this.handleStatusMessage(payload);
       return;
@@ -311,6 +321,7 @@ class SerialSensorService {
     }
 
     if (this.pendingRequestId && event.requestId === this.pendingRequestId) {
+      // Les écrans reçoivent les étapes intermédiaires du scan pour afficher une progression lisible.
       this.emitProgress({
         event: event.event,
         message: event.message,
@@ -323,6 +334,7 @@ class SerialSensorService {
     switch (event.event) {
       case 'MATCH':
       case 'ENROLLED':
+        // Un scan réussi résout la promesse avec l'identifiant d'empreinte renvoyé par le capteur.
         if (!event.fingerprintId) {
           this.pendingReject?.(new Error('Réponse MQTT invalide: fingerprintId manquant.'));
           this.clearPending();

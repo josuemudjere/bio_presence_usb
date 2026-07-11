@@ -138,6 +138,7 @@ const DEFAULT_COURSE_SETTINGS: CourseSettings = {
 };
 
 function parseJSON<T>(raw: string | null, fallback: T): T {
+  // Toute lecture locale passe ici pour éviter qu'un JSON corrompu casse l'application.
   if (!raw) {
     return fallback;
   }
@@ -150,6 +151,7 @@ function parseJSON<T>(raw: string | null, fallback: T): T {
 }
 
 export function loadStudents(): Student[] {
+  // En SSR ou hors navigateur, je renvoie la valeur par défaut sans toucher au localStorage.
   if (typeof window === 'undefined') {
     return DEFAULT_STUDENTS;
   }
@@ -182,6 +184,7 @@ export function saveAttendanceRecords(records: AttendanceRecord[]) {
 }
 
 export function loadExportsCount(): number {
+  // Le compteur d'exports est normalisé pour éviter les valeurs négatives ou invalides.
   if (typeof window === 'undefined') {
     return DEFAULT_EXPORTS_COUNT;
   }
@@ -227,6 +230,7 @@ export function loadDepartureExceptions(): DepartureException[] {
 }
 
 export function saveDepartureException(exc: DepartureException): void {
+  // Une exception remplace toujours la précédente pour le même pointage afin d'éviter les doublons.
   if (typeof window === 'undefined') {
     return;
   }

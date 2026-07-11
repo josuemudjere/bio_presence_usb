@@ -13,6 +13,8 @@ import java.util.List;
 
 @Configuration
 public class ConfigCors implements WebMvcConfigurer {
+
+  // Je garde des patterns assez larges pour supporter les postes locaux et les appareils du réseau de test.
   private static final String[] ALLOWED_ORIGIN_PATTERNS = {
     "http://localhost:*",
     "http://127.0.0.1:*",
@@ -30,6 +32,7 @@ public class ConfigCors implements WebMvcConfigurer {
 
   @Override
   public void addCorsMappings(@NonNull CorsRegistry registry) {
+    // Cette configuration MVC couvre les appels classiques du frontend vers l'API.
     registry.addMapping("/**")
       .allowedOriginPatterns(
         "http://localhost:*",
@@ -52,6 +55,7 @@ public class ConfigCors implements WebMvcConfigurer {
 
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
+    // Je fournis aussi un bean dédié pour les composants Spring Security ou filtres éventuels.
     CorsConfiguration configuration = new CorsConfiguration();
     configuration.setAllowedOriginPatterns(List.of(ALLOWED_ORIGIN_PATTERNS));
     configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));

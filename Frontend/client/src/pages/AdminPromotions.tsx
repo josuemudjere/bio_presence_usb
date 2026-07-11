@@ -21,6 +21,7 @@ const emptyForm = {
 };
 
 export default function AdminPromotions() {
+  // Cet écran relie une promotion à son département, sa filière et son panier de cours.
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [cours, setCours] = useState<Cours[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,6 +32,7 @@ export default function AdminPromotions() {
   const [form, setForm] = useState(emptyForm);
 
   useEffect(() => {
+    // Je charge les promotions et les cours ensemble pour alimenter la liste et le formulaire.
     setLoading(true);
     Promise.all([fetchPromotions(), fetchCours()])
       .then(([promotionRows, coursRows]) => {
@@ -44,12 +46,14 @@ export default function AdminPromotions() {
   }, []);
 
   const openCreate = () => {
+    // En création, le formulaire repart d'un état neutre.
     setEditingId(null);
     setForm(emptyForm);
     setDialogOpen(true);
   };
 
   const openEdit = (promotion: Promotion) => {
+    // En édition, je convertis les ids de cours en chaînes pour les checkboxes contrôlées.
     setEditingId(promotion.id);
     setForm({
       niveau: promotion.niveau,
@@ -62,6 +66,7 @@ export default function AdminPromotions() {
   };
 
   const handleSave = async () => {
+    // Une promotion sans rattachement ni cours n'est pas exploitable côté enrôlement.
     if (!form.niveau.trim() || !form.departement.trim() || !form.programme.trim() || form.coursIds.length === 0) {
       toast.error('Renseignez le niveau, le département, la filière et au moins un cours.');
       return;
@@ -69,6 +74,7 @@ export default function AdminPromotions() {
 
     setSaving(true);
     try {
+      // Le backend attend à la fois un nom et un niveau, je garde les deux alignés ici.
       const payload = {
         nom: form.niveau.trim(),
         niveau: form.niveau.trim(),
@@ -97,6 +103,7 @@ export default function AdminPromotions() {
   };
 
   const handleDelete = async (id: number) => {
+    // Je n'immobilise que la carte ciblée pendant la suppression.
     setDeletingId(id);
     try {
       await deletePromotion(id);
@@ -113,6 +120,7 @@ export default function AdminPromotions() {
     <div className="flex">
       <Sidebar />
       <main className="ml-64 min-h-screen flex-1 bg-slate-50">
+        {/* L'administration des promotions est pensée comme un référentiel peu fréquent mais structurant. */}
         <header className="sticky top-0 z-40 flex h-[73px] items-center justify-between border-b border-slate-200 bg-white px-8">
           <div>
             <h1 className="text-xl font-bold tracking-tight text-slate-900">Promotions</h1>
@@ -189,6 +197,7 @@ export default function AdminPromotions() {
       </main>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        {/* La modale concentre toute la configuration d'une promotion pour éviter de fragmenter le flux. */}
         <DialogContent className="sm:max-w-[560px] p-0 gap-0 rounded-2xl border-0 shadow-2xl">
           <div className="bg-gradient-to-br from-blue-950 via-blue-800 to-indigo-900 px-6 py-5 rounded-t-2xl">
             <DialogTitle className="text-white text-lg font-bold">

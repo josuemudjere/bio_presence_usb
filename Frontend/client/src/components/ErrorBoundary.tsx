@@ -11,6 +11,7 @@ interface State {
   error: Error | null;
 }
 
+// Cette boundary empêche qu'une erreur React casse toute l'application sans feedback exploitable.
 class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
@@ -18,11 +19,13 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   static getDerivedStateFromError(error: Error): State {
+    // Je capture l'erreur dans le state pour rendre un écran de secours au prochain rendu.
     return { hasError: true, error };
   }
 
   render() {
     if (this.state.hasError) {
+      // J'affiche ici la pile pour accélérer le diagnostic en environnement de développement.
       return (
         <div className="flex items-center justify-center min-h-screen p-8 bg-background">
           <div className="flex flex-col items-center w-full max-w-2xl p-8">
@@ -55,6 +58,7 @@ class ErrorBoundary extends Component<Props, State> {
       );
     }
 
+    // Si aucune erreur n'a été levée, le composant se comporte comme un simple conteneur transparent.
     return this.props.children;
   }
 }

@@ -36,6 +36,7 @@ function getAvatarUrl(studentName: string): string {
 }
 
 function speakText(text: string): void {
+  // La synthèse vocale reste optionnelle et ne doit jamais bloquer le flux de pointage.
   if (!('speechSynthesis' in window)) return;
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
@@ -82,6 +83,7 @@ function formatScanTimestamp(date: Date): string {
 }
 
 export default function UtilisateurPresence() {
+  // Cette page pilote le scan biométrique, l'affichage du résultat et les exceptions manuelles.
   const { user } = useAuth();
   const assignedCourseIds = user?.coursIds ?? (user?.coursId != null ? [user.coursId] : []);
 
@@ -129,6 +131,7 @@ export default function UtilisateurPresence() {
   const [manualSaving, setManualSaving] = useState(false);
 
   const handleConfirmDeparture = (reason: DepartureReason | null) => {
+    // Une sortie anticipée crée une exception locale qui sera visible dans les contrôles ultérieurs.
     if (!earlyDeparturePending) return;
     saveDepartureException({
       attendanceId: earlyDeparturePending.attendanceId,
@@ -145,6 +148,7 @@ export default function UtilisateurPresence() {
   useEffect(() => serialSensor.onConnectionChange(setConnectionState), []);
 
   useEffect(() => {
+    // La file automatique n'est activée que quand le capteur est réellement disponible.
     if (connectionState === 'connected') {
       setAutoQueueEnabled(true);
       return;
@@ -155,6 +159,7 @@ export default function UtilisateurPresence() {
   }, [connectionState]);
 
   useEffect(() => {
+    // Au démontage, je nettoie tout ce qui pourrait laisser un scan ou un timer orphelin.
     pageActiveRef.current = true;
 
     return () => {
@@ -176,6 +181,7 @@ export default function UtilisateurPresence() {
   );
 
   useEffect(() => {
+    // Je mémorise le cours choisi pour éviter à l'enseignant de le re-sélectionner à chaque visite.
     const savedCourseId = Number(localStorage.getItem(TEACHER_SELECTED_COURSE_KEY));
     if (Number.isFinite(savedCourseId) && assignedCourseIds.includes(savedCourseId)) {
       setSelectedCoursId(savedCourseId);
@@ -195,6 +201,7 @@ export default function UtilisateurPresence() {
   }, [selectedCoursId]);
 
   useEffect(() => {
+    // L'hydratation charge uniquement les cours réellement affectés à l'enseignant connecté.
     let mounted = true;
     const hydrate = async () => {
       try {
@@ -213,6 +220,7 @@ export default function UtilisateurPresence() {
   }, [user?.id]);
 
   const handleScan = async () => {
+    // Un seul scan à la fois pour éviter les doublons et les collisions de réponse capteur.
     if (scanInProgressRef.current) return;
     if (!selectedCoursId) return;
 
@@ -230,6 +238,7 @@ export default function UtilisateurPresence() {
     let fingerprintId: string | null = null;
 
     try {
+      // Je commence toujours par laisser le capteur produire l'identifiant d'empreinte source.
       const scanDetectedAt = new Date();
       const scannedFingerprintId = await scanFingerprintFromSensor({ mode: 'attendance' });
       fingerprintId = scannedFingerprintId;
@@ -240,6 +249,7 @@ export default function UtilisateurPresence() {
       setSensorState('loading');
 
       if (!isApiReady) {
+        // En mode local, je tente un matching simple sur les étudiants déjà chargés dans la page.
         const matchedStudent = filteredStudents.find(s => hasFingerprintId(s.fingerprintTemplateId, scannedFingerprintId));
         if (!matchedStudent) throw new Error('Empreinte non reconnue.');
         const fullName = formatStudentFullName(matchedStudent);
@@ -279,6 +289,7 @@ export default function UtilisateurPresence() {
       setSensorState('success');
 
       const selectedCourseEndTime = selectedCourse?.heureFin || courseSettings.endTime;
+      // Une sortie avant l'heure de fin prévue ouvre une justification complémentaire.
       if (attendanceType === 'exit' && selectedCourseEndTime && checkOutTime && checkOutTime < selectedCourseEndTime) {
         setEarlyDeparturePending({
           attendanceId: scanResponse.attendance.id,
@@ -310,6 +321,7 @@ export default function UtilisateurPresence() {
   };
 
   useEffect(() => {
+    // Le résultat visuel disparaît après un délai pour laisser la place au scan suivant.
     if (!result) {
       if (resultTimeoutRef.current !== null) {
         window.clearTimeout(resultTimeoutRef.current);
@@ -332,12 +344,14 @@ export default function UtilisateurPresence() {
   }, [result]);
 
   useEffect(() => {
+    // En mode file automatique, je relance discrètement un scan dès que l'écran redevient idle.
     if (!autoQueueEnabled || connectionState !== 'connected' || sensorState !== 'idle') return;
     const timeoutId = window.setTimeout(() => { handleScan(); }, 250);
     return () => { window.clearTimeout(timeoutId); };
   }, [autoQueueEnabled, sensorState, students, isApiReady, connectionState]);
 
   useEffect(() => {
+    // Après succès ou erreur, je réarme l'écran avec un cooldown différent selon le résultat.
     if (!autoQueueEnabled || (sensorState !== 'success' && sensorState !== 'error')) return;
     const normalizedError = errorMessage.toLowerCase();
     const skipRetry =

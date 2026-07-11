@@ -118,6 +118,7 @@ interface ApiPromotion {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // Tous les appels admin passent ici pour centraliser les en-têtes et le traitement d'erreur.
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
@@ -130,11 +131,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let message = `Erreur API (${response.status})`;
 
     try {
+      // Je privilégie d'abord le message JSON métier renvoyé par le backend.
       const payload = (await response.json()) as { message?: string };
       if (payload?.message) {
         message = payload.message;
       }
     } catch {
+      // Si la réponse n'est pas JSON, je tente au moins d'exposer le texte brut utile au diagnostic.
       const errorText = await response.text();
       if (errorText) {
         message = errorText;
@@ -144,6 +147,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(message);
   }
 
+  // Certaines routes REST répondent sans corps, je normalise ce cas pour les appelants.
   if (response.status === 204 || response.headers.get('content-length') === '0') {
     return undefined as T;
   }
@@ -153,6 +157,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 function normalizeTime(value: string): string {
+  // Je ramène les heures au format HH:mm attendu partout dans le front.
   if (!value) {
     return '';
   }
@@ -161,6 +166,7 @@ function normalizeTime(value: string): string {
 }
 
 function toClientStudent(apiStudent: ApiStudent): Student {
+  // Cette conversion isole le front des détails exacts du contrat backend.
   const academicStatus = apiStudent.status;
   return {
     id: apiStudent.id,
@@ -243,6 +249,7 @@ function toClientCours(apiCours: ApiCours): Cours {
 }
 
 function normalizeUserRole(role: string): 'admin' | 'teacher' {
+  // Pour le moment, tout rôle non admin est traité comme enseignant dans l'interface.
   return role === 'admin' ? 'admin' : 'teacher';
 }
 
@@ -260,6 +267,7 @@ function toClientUtilisateur(apiUtilisateur: ApiUtilisateur): Utilisateur {
 }
 
 function toClientAttendance(apiAttendance: ApiAttendance): AttendanceRecord {
+  // J'enrichis les pointages avec des champs d'affichage directement exploitables dans les tableaux.
   return {
     id: apiAttendance.id,
     studentId: apiAttendance.studentId,

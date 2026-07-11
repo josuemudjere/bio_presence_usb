@@ -23,6 +23,7 @@ function toIsoDate(date: Date): string {
 }
 
 export default function UtilisateurTableauDeBord() {
+  // Le tableau de bord enseignant reprend les chiffres utiles sans exposer toute la complexité admin.
   const { user } = useAuth();
   const assignedCourseIds = user?.coursIds ?? (user?.coursId != null ? [user.coursId] : []);
   const [assignedCourses, setAssignedCourses] = useState<Cours[]>([]);
@@ -50,10 +51,12 @@ export default function UtilisateurTableauDeBord() {
   useEffect(() => serialSensor.onConnectionChange(setConnectionState), []);
 
   useEffect(() => {
+    // Par défaut, je sélectionne le premier cours affecté à l'enseignant connecté.
     setSelectedCoursId(assignedCourseIds[0] ?? null);
   }, [user?.id]);
 
   useEffect(() => {
+    // Le catalogue complet est filtré côté client pour n'afficher que les cours assignés.
     let mounted = true;
 
     const loadCourses = async () => {
@@ -79,6 +82,7 @@ export default function UtilisateurTableauDeBord() {
   }, [user?.id]);
 
   useEffect(() => {
+    // Le changement de cours entraîne le rechargement des chiffres du jour et de la semaine.
     let mounted = true;
 
     const loadStats = async () => {
@@ -180,6 +184,7 @@ export default function UtilisateurTableauDeBord() {
         </header>
 
         <div className="p-8 space-y-6">
+          {/* Le bandeau capteur donne à l'enseignant le même niveau d'information qu'à l'administration. */}
           <div className={`rounded-2xl border p-4 flex items-center justify-between shadow-sm ${
             connectionState === 'connected'
               ? 'border-emerald-200 bg-emerald-50'

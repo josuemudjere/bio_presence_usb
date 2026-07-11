@@ -15,6 +15,7 @@ import { fetchCours, fetchUtilisateurs, createUtilisateur, updateUtilisateur, to
 const emptyForm = { nom: '', email: '', password: '', coursId: '', coursIds: [] as string[], role: 'teacher' };
 
 export default function AdminUtilisateurs() {
+  // Cet écran gère les comptes enseignants et administrateurs ainsi que leurs cours assignés.
   const [utilisateurs, setUtilisateurs] = useState<Utilisateur[]>([]);
   const [cours, setCours] = useState<Cours[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,6 +27,7 @@ export default function AdminUtilisateurs() {
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   useEffect(() => {
+    // Je récupère les comptes et le catalogue des cours en parallèle pour enrichir les affectations.
     Promise.all([fetchUtilisateurs(), fetchCours()])
       .then(([u, c]) => { setUtilisateurs(u); setCours(c); })
       .catch(() => toast.error('Impossible de charger les données.'))
@@ -45,6 +47,7 @@ export default function AdminUtilisateurs() {
   };
 
   const openCreate = () => {
+    // La création repart toujours d'un formulaire vierge et masque le mot de passe par défaut.
     setEditingId(null);
     setForm(emptyForm);
     setShowPassword(false);
@@ -52,6 +55,7 @@ export default function AdminUtilisateurs() {
   };
 
   const openEdit = (u: Utilisateur) => {
+    // En édition, je précharge les cours assignés sous forme de tableau de chaînes pour les checkboxes.
     setEditingId(u.id);
     setForm({
       nom: u.nom,
@@ -66,12 +70,14 @@ export default function AdminUtilisateurs() {
   };
 
   const handleSave = async () => {
+    // Je garde une validation locale simple avant d'appeler l'API de gestion des comptes.
     if (!form.nom.trim()) { toast.error('Le nom est obligatoire.'); return; }
     if (!form.email.trim()) { toast.error('L\'email est obligatoire.'); return; }
     if (!editingId && form.password.length < 4) { toast.error('Le mot de passe doit faire au moins 4 caractères.'); return; }
 
     setSaving(true);
     try {
+      // Le premier cours reste propagé dans coursId pour rester compatible avec l'ancien contrat backend.
       const payload = {
         nom: form.nom.trim(),
         email: form.email.trim(),
@@ -98,6 +104,7 @@ export default function AdminUtilisateurs() {
   };
 
   const handleToggleActif = async (id: string) => {
+    // L'activation et la désactivation passent par le même endpoint de bascule.
     setTogglingId(id);
     try {
       const updated = await toggleActifUtilisateur(id);
@@ -114,6 +121,7 @@ export default function AdminUtilisateurs() {
     <div className="flex">
       <Sidebar />
       <main className="ml-64 min-h-screen flex-1 bg-slate-50">
+        {/* La liste sert de vue d'ensemble rapide, la modale prend en charge l'édition détaillée. */}
         <header className="sticky top-0 z-40 flex h-[73px] items-center justify-between border-b border-slate-200 bg-white px-8">
           <div>
             <h1 className="text-xl font-bold tracking-tight text-slate-900">Gestion des utilisateurs</h1>
@@ -208,6 +216,7 @@ export default function AdminUtilisateurs() {
       </main>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        {/* Je mutualise création et modification pour garder une seule logique de formulaire. */}
         <DialogContent className="sm:max-w-[440px] p-0 gap-0 rounded-2xl border-0 shadow-2xl">
           <div className="bg-gradient-to-br from-blue-950 via-blue-800 to-indigo-900 px-6 py-5 rounded-t-2xl">
             <DialogTitle className="text-white text-lg font-bold">

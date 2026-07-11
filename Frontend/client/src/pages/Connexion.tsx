@@ -23,6 +23,7 @@ export default function Login() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    // Si la session existe déjà, je saute immédiatement l'écran de connexion.
     if (!isAuthenticated || !user) {
       return;
     }
@@ -31,6 +32,7 @@ export default function Login() {
   }, [isAuthenticated, setLocation, user]);
 
   const handleLogin = async (e: React.FormEvent) => {
+    // La validation locale évite des appels inutiles quand le formulaire est incomplet.
     e.preventDefault();
     if (!email || !password) {
       toast.error('Veuillez remplir tous les champs');
@@ -49,6 +51,7 @@ export default function Login() {
     }
   };
 
+  // Ces accroches résument les bénéfices produit pendant l'attente de connexion.
   const featureHighlights = [
     {
       icon: Fingerprint,
@@ -64,6 +67,7 @@ export default function Login() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_15%_20%,rgba(59,130,246,0.22),transparent_35%),radial-gradient(circle_at_85%_0%,rgba(16,185,129,0.22),transparent_30%),linear-gradient(140deg,#020617_0%,#0f172a_48%,#111827_100%)] px-4 py-8 md:px-8 md:py-10">
+      {/* Je construis un décor riche mais purement visuel, sans interférer avec les interactions. */}
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(148,163,184,0.08)_1px,transparent_1px),linear-gradient(to_bottom,rgba(148,163,184,0.08)_1px,transparent_1px)] bg-[size:26px_26px] opacity-20" />
       <div className="pointer-events-none absolute -left-20 top-16 h-72 w-72 rounded-full bg-primary/20 blur-3xl" />
       <div className="pointer-events-none absolute -right-20 bottom-16 h-72 w-72 rounded-full bg-emerald-400/20 blur-3xl" />
@@ -74,6 +78,7 @@ export default function Login() {
         animate={{ opacity: 1 }}
         transition={{ duration: 0.4 }}
       >
+        {/* Le panneau de gauche sert surtout à rappeler le positionnement du produit. */}
         <motion.section
           className="rounded-3xl border border-white/15 bg-white/[0.06] p-6 backdrop-blur-xl md:p-10"
           initial={{ opacity: 0, y: 20 }}
@@ -123,6 +128,7 @@ export default function Login() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.18 }}
         >
+          {/* Le panneau de droite concentre le vrai flux d'authentification. */}
           <Card className="border border-white/15 bg-slate-900/70 shadow-2xl backdrop-blur-xl">
           <CardHeader className="border-b border-white/10 pb-5">
             <CardTitle className="text-center text-2xl font-bold text-white">Connexion administrateur / enseignant</CardTitle>
@@ -136,6 +142,7 @@ export default function Login() {
               <div className="space-y-2">
                 <label className="text-sm font-medium text-slate-200">Email</label>
                 <div className="relative">
+                  {/* L'icône reste décorative, l'input conserve la responsabilité de la saisie. */}
                   <Mail className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
                   <Input
                     type="email"
@@ -165,6 +172,7 @@ export default function Login() {
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-3 text-slate-400 transition-colors hover:text-slate-200"
                   >
+                    {/* J'autorise l'affichage du mot de passe pour limiter les erreurs de frappe. */}
                     {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
                 </div>
@@ -175,6 +183,7 @@ export default function Login() {
                 disabled={isSubmitting || isLoading}
                 className="mt-6 h-11 w-full rounded-xl bg-gradient-to-r from-primary via-primary to-emerald-500 font-semibold text-primary-foreground transition-all duration-300 hover:brightness-110"
               >
+                {/* Le libellé bascule sur un indicateur de progression dès que la requête part. */}
                 {isSubmitting ? (
                   <div className="flex items-center gap-2">
                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />

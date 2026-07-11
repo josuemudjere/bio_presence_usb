@@ -28,26 +28,31 @@ public class CoursController {
 
   @GetMapping
   public List<CoursReponse> list() {
+    // Retourne le catalogue complet des cours pour l'administration frontend.
     return coursService.listAll();
   }
 
   @GetMapping("/{id}")
   public CoursReponse getById(@PathVariable Long id) {
+    // Charge un cours précis, notamment pour préremplir les formulaires d'édition.
     return coursService.getById(id);
   }
 
   @PostMapping
   public CoursReponse create(@Valid @RequestBody CoursRequete request) {
+    // Crée un nouveau cours à partir du contrat reçu depuis le front.
     return coursService.create(request);
   }
 
   @PutMapping("/{id}")
   public CoursReponse update(@PathVariable Long id, @Valid @RequestBody CoursRequete request) {
+    // Met à jour le cours ciblé sans exposer directement l'entité JPA.
     return coursService.update(id, request);
   }
 
   @DeleteMapping("/{id}")
   public ResponseEntity<Void> delete(@PathVariable Long id) {
+    // Une suppression réussie répond sans corps conformément aux usages REST.
     coursService.delete(id);
     return ResponseEntity.noContent().build();
   }

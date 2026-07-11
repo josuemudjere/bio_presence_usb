@@ -21,6 +21,7 @@ export function ThemeProvider({
   defaultTheme = "light",
   switchable = false,
 }: ThemeProviderProps) {
+  // Si le thème est pilotable, je relis la préférence locale au montage.
   const [theme, setTheme] = useState<Theme>(() => {
     if (switchable) {
       const stored = localStorage.getItem("theme");
@@ -30,6 +31,7 @@ export function ThemeProvider({
   });
 
   useEffect(() => {
+    // J'applique la classe sur l'élément racine pour laisser le CSS piloter tout le thème.
     const root = document.documentElement;
     if (theme === "dark") {
       root.classList.add("dark");
@@ -42,6 +44,7 @@ export function ThemeProvider({
     }
   }, [theme, switchable]);
 
+  // Je n'expose un toggle que si le projet a réellement choisi de rendre le thème modifiable.
   const toggleTheme = switchable
     ? () => {
         setTheme(prev => (prev === "light" ? "dark" : "light"));
@@ -58,6 +61,7 @@ export function ThemeProvider({
 export function useTheme() {
   const context = useContext(ThemeContext);
   if (!context) {
+    // Ce garde-fou évite d'utiliser le thème hors du provider principal.
     throw new Error("useTheme must be used within ThemeProvider");
   }
   return context;

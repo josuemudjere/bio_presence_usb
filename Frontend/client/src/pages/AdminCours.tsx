@@ -18,6 +18,7 @@ const emptyForm = {
 };
 
 export default function AdminCours() {
+  // Cet écran rassemble la liste, l'édition et la suppression des cours dans un seul flux admin.
   const [cours, setCours] = useState<Cours[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -27,6 +28,7 @@ export default function AdminCours() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   useEffect(() => {
+    // Au montage, je charge le référentiel des cours une seule fois pour hydrater la vue.
     setLoading(true);
     fetchCours()
       .then(setCours)
@@ -35,12 +37,14 @@ export default function AdminCours() {
   }, []);
 
   const openCreate = () => {
+    // En création, je repars d'un formulaire vierge et sans identifiant courant.
     setEditingId(null);
     setForm(emptyForm);
     setDialogOpen(true);
   };
 
   const openEdit = (c: Cours) => {
+    // En édition, je convertis les valeurs numériques en chaînes pour alimenter les inputs contrôlés.
     setEditingId(c.id);
     setForm({
       nom: c.nom,
@@ -52,12 +56,14 @@ export default function AdminCours() {
   };
 
   const handleSave = async () => {
+    // Les contrôles minimaux restent côté client avant de composer la charge utile API.
     if (!form.nom.trim()) { toast.error('Le nom du cours est obligatoire.'); return; }
     const credits = parseInt(form.credits || '0');
     const volumeHoraire = parseInt(form.volumeHoraire || '0');
 
     setSaving(true);
     try {
+      // Le payload garde le contrat backend complet, même si cet écran n'expose pas encore tous les champs.
       const payload = {
         nom: form.nom.trim(),
         code: form.code.trim() || undefined,
@@ -93,6 +99,7 @@ export default function AdminCours() {
   };
 
   const handleDelete = async (id: number) => {
+    // Je verrouille uniquement la carte concernée pour garder le reste de l'écran interactif.
     setDeletingId(id);
     try {
       await deleteCours(id);
@@ -109,6 +116,7 @@ export default function AdminCours() {
     <div className="flex">
       <Sidebar />
       <main className="ml-64 min-h-screen flex-1 bg-slate-50">
+        {/* L'entête fixe garde les actions principales visibles même sur une longue liste. */}
         <header className="sticky top-0 z-40 flex h-[73px] items-center justify-between border-b border-slate-200 bg-white px-8">
           <div>
             <h1 className="text-xl font-bold tracking-tight text-slate-900">Gestion des cours</h1>
@@ -120,6 +128,7 @@ export default function AdminCours() {
         </header>
         <div className="p-8 max-w-5xl mx-auto">
 
+          {/* Je fais alterner les états de chargement, vide et liste pour clarifier le statut de la page. */}
           {loading ? (
             <div className="flex justify-center py-20">
               <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -183,6 +192,7 @@ export default function AdminCours() {
       </main>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        {/* La modale mutualise la création et l'édition pour limiter la duplication de formulaire. */}
         <DialogContent className="sm:max-w-[500px] p-0 gap-0 rounded-2xl border-0 shadow-2xl">
           <div className="bg-gradient-to-br from-blue-950 via-blue-800 to-indigo-900 px-6 py-5 rounded-t-2xl">
             <DialogTitle className="text-white text-lg font-bold">

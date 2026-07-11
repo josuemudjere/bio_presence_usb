@@ -21,6 +21,7 @@ import UtilisateurEligibilite from "./pages/UtilisateurEligibilite";
 
 type RouteGroup = "home" | "login" | "admin" | "teacher" | "other";
 
+// Je regroupe les routes par zone fonctionnelle pour piloter les animations entre écrans.
 function getRouteGroup(path: string): RouteGroup {
   if (path === "/accueil") {
     return "home";
@@ -46,6 +47,7 @@ function Router() {
   const { isAuthenticated, isLoading } = useAuth();
   const previousLocationRef = useRef(location);
 
+  // Les transitions changent selon le contexte pour garder une navigation lisible.
   const transitionConfig = useMemo(() => {
     const previousGroup = getRouteGroup(previousLocationRef.current);
     const currentGroup = getRouteGroup(location);
@@ -85,10 +87,12 @@ function Router() {
     };
   }, [location]);
 
+  // Je mémorise la route précédente pour calculer correctement la transition suivante.
   useEffect(() => {
     previousLocationRef.current = location;
   }, [location]);
 
+  // Tant que la session n'est pas résolue, je bloque l'UI sur un état de chargement neutre.
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -100,6 +104,7 @@ function Router() {
     );
   }
 
+  // Si l'utilisateur n'est pas connecté, seules les routes d'authentification restent accessibles.
   if (!isAuthenticated) {
     return (
       <AnimatePresence mode="wait" initial={false}>
@@ -120,6 +125,7 @@ function Router() {
     );
   }
 
+  // Une fois authentifié, je laisse chaque écran protégé gérer son contrôle d'accès fin.
   return (
     <AnimatePresence mode="wait" initial={false}>
       <motion.div
@@ -186,12 +192,9 @@ function Router() {
   );
 }
 
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
 
 function App() {
+  // J'empile ici les providers globaux pour centraliser les dépendances partagées de l'application.
   return (
     <ErrorBoundary>
       <AuthProvider>

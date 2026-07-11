@@ -18,6 +18,7 @@ interface EligibilityRow {
 }
 
 function generateEligibilityPdf(rows: EligibilityRow[], coursName: string) {
+  // L'export PDF permet de partager l'état d'éligibilité sans dépendre de l'interface web.
   const doc = new jsPDF();
   doc.setFontSize(16);
   doc.text(`Éligibilité à l'examen — ${coursName}`, 14, 18);
@@ -43,6 +44,7 @@ function generateEligibilityPdf(rows: EligibilityRow[], coursName: string) {
 }
 
 export default function UtilisateurEligibilite() {
+  // Cette page donne à l'enseignant la vue finale des seuils d'assiduité de son cours.
   const { user } = useAuth();
   const coursId = user?.coursId;
 
@@ -51,6 +53,7 @@ export default function UtilisateurEligibilite() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
+    // Je charge la liste dès que le cours principal de l'utilisateur est connu.
     if (!coursId) return;
     setLoading(true);
     fetchEligibilityForCours(coursId)
@@ -85,6 +88,7 @@ export default function UtilisateurEligibilite() {
         </header>
 
         <div className="max-w-5xl mx-auto p-8">
+          {/* Les cartes de synthèse permettent un diagnostic rapide avant le détail par étudiant. */}
           <div className="mb-8">
             <h2 className="text-lg font-semibold text-slate-900">Synthèse de présence</h2>
             <p className="mt-1 text-sm text-slate-500">Vue globale de l’éligibilité selon l’assiduité enregistrée.</p>

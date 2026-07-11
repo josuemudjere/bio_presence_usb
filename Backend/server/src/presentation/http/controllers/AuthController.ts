@@ -7,6 +7,7 @@ export class AuthController {
 
   login = async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Le contrôleur ne fait ici que la validation d'entrée et la traduction HTTP du use case.
       const { email, password, role } = req.body as {
         email?: string;
         password?: string;
@@ -22,6 +23,7 @@ export class AuthController {
       const user = await this.loginUseCase.execute({ email, password, role });
       return res.status(200).json({ user });
     } catch (error) {
+      // Les erreurs sont déléguées au middleware pour conserver un format de réponse uniforme.
       return next(error);
     }
   };

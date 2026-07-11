@@ -33,6 +33,7 @@ function toIsoDate(d: Date): string {
 }
 
 function generateDailyPdf(records: AttendanceRecord[], date: string, coursName: string) {
+  // Le rapport journalier vise un usage administratif immédiat avec une mise en page simple.
   const doc = new jsPDF();
   doc.setFontSize(16);
   doc.text(`Rapport de présence — ${coursName}`, 14, 18);
@@ -59,6 +60,7 @@ function generateDailyPdf(records: AttendanceRecord[], date: string, coursName: 
 }
 
 function generateWeeklyPdf(records: AttendanceRecord[], startDate: string, endDate: string, coursName: string) {
+  // La version hebdomadaire passe en paysage pour garder toutes les colonnes lisibles.
   const doc = new jsPDF({ orientation: 'landscape' });
   doc.setFontSize(16);
   doc.text(`Rapport hebdomadaire — ${coursName}`, 14, 18);
@@ -86,12 +88,14 @@ function generateWeeklyPdf(records: AttendanceRecord[], startDate: string, endDa
 }
 
 export default function UtilisateurRapports() {
+  // L'enseignant peut ici extraire les présences de son cours par jour ou par semaine.
   const { user } = useAuth();
   const assignedCourseIds = user?.coursIds ?? (user?.coursId != null ? [user.coursId] : []);
   const [assignedCourses, setAssignedCourses] = useState<Cours[]>([]);
   const [selectedCoursId, setSelectedCoursId] = useState<number | null>(assignedCourseIds[0] ?? null);
 
   useEffect(() => {
+    // Je restaure le dernier cours choisi si l'utilisateur y a encore accès.
     const savedCourseId = Number(localStorage.getItem(TEACHER_SELECTED_COURSE_KEY));
     if (Number.isFinite(savedCourseId) && assignedCourseIds.includes(savedCourseId)) {
       setSelectedCoursId(savedCourseId);
@@ -102,6 +106,7 @@ export default function UtilisateurRapports() {
   }, [user?.id, user?.coursIds, user?.coursId]);
 
   useEffect(() => {
+    // Le choix courant est persisté pour harmoniser cette page avec les autres vues enseignant.
     if (selectedCoursId == null) {
       localStorage.removeItem(TEACHER_SELECTED_COURSE_KEY);
       return;
@@ -111,6 +116,7 @@ export default function UtilisateurRapports() {
   }, [selectedCoursId]);
 
   useEffect(() => {
+    // Je récupère le catalogue complet puis je filtre sur les cours réellement assignés.
     let mounted = true;
 
     const loadAssignedCourses = async () => {
@@ -153,6 +159,7 @@ export default function UtilisateurRapports() {
   );
 
   const handleFetchDaily = async () => {
+    // Ce chargement reste explicite pour permettre à l'utilisateur de rejouer la requête quand il change de date.
     if (!selectedCoursId) return;
     setDailyLoading(true);
     try {
@@ -166,6 +173,7 @@ export default function UtilisateurRapports() {
   };
 
   useEffect(() => {
+    // Le rapport journalier se recharge automatiquement quand le cours ou la date changent.
     if (!selectedCoursId) {
       setDailyRecords(null);
       return;
@@ -175,6 +183,7 @@ export default function UtilisateurRapports() {
   }, [selectedCoursId, dailyDate]);
 
   const handleFetchWeek = async () => {
+    // La semaine se charge à la demande car la plage peut varier librement.
     if (!selectedCoursId) return;
     setWeekLoading(true);
     try {
@@ -206,6 +215,7 @@ export default function UtilisateurRapports() {
         </header>
 
         <div className="p-8 max-w-4xl mx-auto">
+          {/* J'affiche d'abord les contraintes d'affectation pour éviter une page vide incompréhensible. */}
           {assignedCourseIds.length === 0 && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-700 mb-6">
               Aucun cours assigné à votre compte. Contactez un administrateur.
