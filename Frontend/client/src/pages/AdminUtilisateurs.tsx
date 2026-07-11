@@ -228,7 +228,7 @@ export default function AdminUtilisateurs() {
               <Label htmlFor="u-nom">Nom complet *</Label>
               <Input
                 id="u-nom"
-                placeholder="Ex : Jean Dupont"
+                placeholder="Saisir le nom complet de l'utilisateur"
                 value={form.nom}
                 onChange={e => setForm(f => ({ ...f, nom: e.target.value }))}
               />

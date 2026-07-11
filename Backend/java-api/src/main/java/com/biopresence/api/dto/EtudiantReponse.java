@@ -23,6 +23,7 @@ public record EtudiantReponse(
   List<Long> creditCoursIds,
   String photoUrl,
   boolean fingerprintRegistered,
+  List<String> fingerprintTemplateIds,
   String fingerprintTemplateId,
   int fingerprintCount,
   String lastFingerprintScan,

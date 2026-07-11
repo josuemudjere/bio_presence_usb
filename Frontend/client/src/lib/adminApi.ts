@@ -1,5 +1,6 @@
 import type { AttendanceRecord, Cours, CourseSettings, Departement, Programme, Promotion, Student, Utilisateur } from '@/lib/adminData';
 import { getApiBaseUrl } from '@/lib/apiBase';
+import { parseFingerprintIds } from '@/lib/utils';
 
 const API_BASE_URL = getApiBaseUrl();
 
@@ -21,6 +22,7 @@ interface ApiStudent {
   creditCoursIds?: number[];
   photoUrl?: string;
   fingerprintRegistered: boolean;
+  fingerprintTemplateIds?: string[];
   fingerprintTemplateId?: string;
   fingerprintCount?: number;
   lastFingerprintScan?: string;
@@ -168,6 +170,7 @@ function normalizeTime(value: string): string {
 function toClientStudent(apiStudent: ApiStudent): Student {
   // Cette conversion isole le front des détails exacts du contrat backend.
   const academicStatus = apiStudent.status;
+  const fingerprintTemplateIds = apiStudent.fingerprintTemplateIds ?? parseFingerprintIds(apiStudent.fingerprintTemplateId);
   return {
     id: apiStudent.id,
     name: apiStudent.name,
@@ -186,7 +189,8 @@ function toClientStudent(apiStudent: ApiStudent): Student {
     creditCoursIds: apiStudent.creditCoursIds ?? [],
     photoUrl: apiStudent.photoUrl,
     fingerprintRegistered: apiStudent.fingerprintRegistered,
-    fingerprintTemplateId: apiStudent.fingerprintTemplateId,
+    fingerprintTemplateIds,
+    fingerprintTemplateId: apiStudent.fingerprintTemplateId ?? fingerprintTemplateIds.join(','),
     fingerprintCount: apiStudent.fingerprintCount,
     lastFingerprintScan: apiStudent.lastFingerprintScan,
     academicStatus,
@@ -310,6 +314,7 @@ export async function createStudent(input: {
   creditCoursIds?: number[];
   status?: 'ACTIF' | 'INACTIF' | 'SUSPENDU' | 'DIPLOME' | 'EXCLU';
   photoUrl?: string;
+  fingerprintTemplateIds?: string[];
   fingerprintTemplateId?: string;
   fingerprintCount?: number;
 }): Promise<Student> {
@@ -339,6 +344,7 @@ export async function updateStudent(
     creditCoursIds?: number[];
     status?: 'ACTIF' | 'INACTIF' | 'SUSPENDU' | 'DIPLOME' | 'EXCLU';
     photoUrl?: string;
+    fingerprintTemplateIds?: string[];
     fingerprintTemplateId?: string;
     fingerprintCount?: number;
   }

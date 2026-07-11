@@ -44,16 +44,16 @@ Quand la page Presence est connectee au broker:
 4. la carte publie `MATCH` ou `NO_MATCH`
 5. le frontend reagit automatiquement
 
-## Limitation actuelle
+## Support multi-doigts cote application
 
-Le capteur R307/Adafruit stocke un template par slot. Donc un doigt distinct correspond a un ID distinct.
+Le protocole MQTT du firmware ne change pas pour supporter plusieurs doigts sur un meme etudiant.
 
-Avec le modele de donnees actuel de BioPresence:
+- chaque enrôlement `ENROLL` renvoie toujours un `fingerprintId` unique
+- l'association de plusieurs `fingerprintId` a un meme etudiant est maintenant geree par l'application BioPresence
+- le firmware continue donc simplement a publier des identifiants individuels sur les topics existants
 
-- l'enrolement d'un premier doigt est synchronise
-- le multi-doigts pour un meme etudiant n'est pas encore correctement mappe dans l'application
+En pratique, cela signifie qu'un meme etudiant peut maintenant etre lie a plusieurs doigts dans l'interface d'administration, sans modification supplementaire du firmware MQTT.
 
-Pour supporter proprement plusieurs doigts par etudiant, il faudra faire evoluer le backend et le frontend pour stocker plusieurs `fingerprintTemplateId` par etudiant.
 
 ## Flash avec PlatformIO
 

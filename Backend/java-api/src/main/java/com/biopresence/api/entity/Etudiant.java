@@ -1,6 +1,8 @@
 package com.biopresence.api.entity;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.CollectionTable;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -9,8 +11,11 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 
 import java.time.LocalDate;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -64,6 +69,15 @@ public class Etudiant {
   @Column(nullable = false)
   public boolean fingerprintRegistered = false;
 
+  @ElementCollection(fetch = FetchType.EAGER)
+  @CollectionTable(
+    name = "etudiant_fingerprint_template_ids",
+    joinColumns = @JoinColumn(name = "etudiant_id"),
+    uniqueConstraints = @UniqueConstraint(columnNames = { "fingerprint_template_id" })
+  )
+  @Column(name = "fingerprint_template_id", nullable = false)
+  public Set<String> fingerprintTemplateIds = new LinkedHashSet<>();
+
   @Column(unique = true)
   public String fingerprintTemplateId;
 
@@ -96,6 +110,9 @@ public class Etudiant {
     this.coursId = coursId;
     this.photoUrl = photoUrl;
     this.fingerprintTemplateId = fingerprintTemplateId;
+    if (fingerprintTemplateId != null && !fingerprintTemplateId.isBlank()) {
+      this.fingerprintTemplateIds.add(fingerprintTemplateId);
+    }
     this.fingerprintRegistered = fingerprintTemplateId != null && !fingerprintTemplateId.isBlank();
     this.fingerprintCount = this.fingerprintRegistered ? 1 : 0;
     this.status = StatutEtudiant.ACTIF;

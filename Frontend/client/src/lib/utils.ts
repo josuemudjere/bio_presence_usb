@@ -28,19 +28,20 @@ export function createUuid(): string {
   ].join("-");
 }
 
-export function parseFingerprintIds(value?: string | null): string[] {
-  // Plusieurs empreintes peuvent être stockées dans une seule chaîne séparée par des virgules.
-  if (!value) {
+export function parseFingerprintIds(value?: string | string[] | null): string[] {
+  // Plusieurs empreintes peuvent arriver soit en tableau API, soit en chaîne CSV historique.
+  if (!value || (Array.isArray(value) && value.length === 0)) {
     return [];
   }
 
-  return value
-    .split(',')
+  const rawIds = Array.isArray(value) ? value : value.split(',');
+
+  return rawIds
     .map((item) => item.trim().toUpperCase())
     .filter(Boolean);
 }
 
-export function hasFingerprintId(value: string | null | undefined, fingerprintId: string): boolean {
+export function hasFingerprintId(value: string | string[] | null | undefined, fingerprintId: string): boolean {
   // Toutes les comparaisons passent en majuscules pour ignorer les variations de casse du capteur.
   const normalizedFingerprintId = fingerprintId.trim().toUpperCase();
   if (!normalizedFingerprintId) {
@@ -50,7 +51,7 @@ export function hasFingerprintId(value: string | null | undefined, fingerprintId
   return parseFingerprintIds(value).includes(normalizedFingerprintId);
 }
 
-export function appendFingerprintId(value: string | null | undefined, fingerprintId: string): string {
+export function appendFingerprintId(value: string | string[] | null | undefined, fingerprintId: string): string {
   // J'empêche l'ajout de doublons tout en conservant le format de stockage existant.
   const normalizedFingerprintId = fingerprintId.trim().toUpperCase();
   const ids = parseFingerprintIds(value);

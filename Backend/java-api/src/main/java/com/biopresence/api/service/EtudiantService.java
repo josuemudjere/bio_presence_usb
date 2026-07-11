@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -53,7 +54,8 @@ public class EtudiantService {
 
   public EtudiantReponse create(EtudiantRequete request) {
     // Je vérifie d'abord les collisions métier avant de créer la fiche étudiant.
-    validateUniqueFields(request.matricule(), request.fingerprintTemplateId(), null);
+    String normalizedFingerprints = normalizeFingerprints(request.fingerprintTemplateIds(), request.fingerprintTemplateId());
+    validateUniqueFields(request.matricule(), normalizedFingerprints, null);
 
     Etudiant student = new Etudiant(
       request.name().trim(),
@@ -62,7 +64,7 @@ public class EtudiantService {
       request.level().trim(),
       request.coursId(),
       normalizePhotoUrl(request.photoUrl()),
-      normalizeFingerprint(request.fingerprintTemplateId())
+      normalizedFingerprints
     );
     student.postNom = normalizeText(request.postNom());
     student.prenom = normalizeText(request.prenom());
@@ -72,8 +74,13 @@ public class EtudiantService {
     student.telephone = normalizeText(request.telephone());
     student.status = parseStatus(request.status());
     student.promotion = request.promotionId() == null ? null : promotionService.findEntity(request.promotionId());
+    syncFingerprintStorage(student, parseFingerprintIds(normalizedFingerprints));
     if (request.fingerprintCount() != null) {
       student.fingerprintCount = request.fingerprintCount();
+    }
+    student.fingerprintRegistered = !student.fingerprintTemplateIds.isEmpty();
+    if (request.fingerprintCount() == null) {
+      student.fingerprintCount = student.fingerprintTemplateIds.size();
     }
     studentRepository.save(student);
     // Les inscriptions sont synchronisées après la sauvegarde pour utiliser l'identité persistée de l'étudiant.
@@ -84,7 +91,8 @@ public class EtudiantService {
   public EtudiantReponse update(UUID id, EtudiantRequete request) {
     // La mise à jour repart de l'entité existante pour ne pas perdre les informations déjà persistées.
     Etudiant student = findEntity(id);
-    validateUniqueFields(request.matricule(), request.fingerprintTemplateId(), id);
+    String normalizedFingerprints = normalizeFingerprints(request.fingerprintTemplateIds(), request.fingerprintTemplateId());
+    validateUniqueFields(request.matricule(), normalizedFingerprints, id);
 
     student.name = request.name().trim();
     student.postNom = normalizeText(request.postNom());
@@ -99,13 +107,14 @@ public class EtudiantService {
     student.coursId = request.coursId();
     student.promotion = request.promotionId() == null ? null : promotionService.findEntity(request.promotionId());
     student.photoUrl = normalizePhotoUrl(request.photoUrl());
-    student.fingerprintTemplateId = normalizeFingerprint(request.fingerprintTemplateId());
-    student.fingerprintRegistered = student.fingerprintTemplateId != null;
+    syncFingerprintStorage(student, parseFingerprintIds(normalizedFingerprints));
     student.status = parseStatus(request.status());
     if (request.fingerprintCount() != null) {
       student.fingerprintCount = request.fingerprintCount();
-    } else if (student.fingerprintRegistered && student.fingerprintCount == 0) {
-      student.fingerprintCount = 1;
+    }
+    student.fingerprintRegistered = !student.fingerprintTemplateIds.isEmpty();
+    if (request.fingerprintCount() == null) {
+      student.fingerprintCount = student.fingerprintTemplateIds.size();
     }
     studentRepository.save(student);
     syncInscriptions(student, request);
@@ -114,28 +123,29 @@ public class EtudiantService {
 
   public void delete(UUID id) {
     findEntity(id);
-    studentRepository.deleteById(id);
+    studentRepository.deleteById(Objects.requireNonNull(id));
   }
 
   public Etudiant save(Etudiant student) {
-    return studentRepository.save(student);
+    syncFingerprintStorage(student, resolveFingerprintIds(student));
+    return Objects.requireNonNull(studentRepository.save(Objects.requireNonNull(student)));
   }
 
   public Optional<Etudiant> findByFingerprintTemplateId(String fingerprintTemplateId) {
     // La recherche gère les cas où plusieurs identifiants d'empreinte sont stockés dans la même fiche.
-    String normalized = normalizeFingerprint(fingerprintTemplateId);
+    String normalized = normalizeFingerprintId(fingerprintTemplateId);
     if (normalized == null) {
       return Optional.empty();
     }
 
     return studentRepository.findAll().stream()
-      .filter(student -> parseFingerprintIds(student.fingerprintTemplateId).contains(normalized))
+      .filter(student -> resolveFingerprintIds(student).contains(normalized))
       .findFirst();
   }
 
   public Etudiant findEntity(UUID id) {
     // Cette recherche centralisée uniformise le message renvoyé quand l'étudiant n'existe pas.
-    return studentRepository.findById(id).orElseThrow(() -> new ExceptionIntrouvable("Etudiant introuvable."));
+    return studentRepository.findById(Objects.requireNonNull(id)).orElseThrow(() -> new ExceptionIntrouvable("Etudiant introuvable."));
   }
 
   private void validateUniqueFields(String matricule, String fingerprintTemplateId, UUID currentId) {
@@ -156,7 +166,7 @@ public class EtudiantService {
           return;
         }
 
-        List<String> existingFingerprints = parseFingerprintIds(existing.fingerprintTemplateId);
+        List<String> existingFingerprints = resolveFingerprintIds(existing);
         boolean duplicateExists = normalizedFingerprints.stream().anyMatch(existingFingerprints::contains);
         if (duplicateExists) {
           throw new IllegalArgumentException("Cet identifiant d'empreinte existe deja.");
@@ -165,14 +175,30 @@ public class EtudiantService {
     }
   }
 
-  private String normalizeFingerprint(String fingerprintTemplateId) {
-    // J'aplatis ici la liste d'empreintes dans le format texte attendu par l'entité actuelle.
+  private String normalizeFingerprints(List<String> fingerprintTemplateIds, String fingerprintTemplateId) {
+    // Le contrat moderne passe une liste, mais je garde aussi la chaîne CSV pour compatibilité.
+    List<String> fingerprintIds = parseFingerprintIds(fingerprintTemplateIds, fingerprintTemplateId);
+    return fingerprintIds.isEmpty() ? null : String.join(",", fingerprintIds);
+  }
+
+  private String normalizeFingerprintId(String fingerprintTemplateId) {
     if (fingerprintTemplateId == null) {
       return null;
     }
 
-    List<String> fingerprintIds = parseFingerprintIds(fingerprintTemplateId);
-    return fingerprintIds.isEmpty() ? null : String.join(",", fingerprintIds);
+    String normalized = fingerprintTemplateId.trim().toUpperCase();
+    return normalized.isEmpty() ? null : normalized;
+  }
+
+  private List<String> parseFingerprintIds(List<String> fingerprintTemplateIds, String fingerprintTemplateId) {
+    if (fingerprintTemplateIds != null && !fingerprintTemplateIds.isEmpty()) {
+      return fingerprintTemplateIds.stream()
+        .filter(value -> value != null && !value.isBlank())
+        .map(value -> value.trim().toUpperCase())
+        .collect(Collectors.collectingAndThen(Collectors.toCollection(LinkedHashSet::new), List::copyOf));
+    }
+
+    return parseFingerprintIds(fingerprintTemplateId);
   }
 
   private List<String> parseFingerprintIds(String fingerprintTemplateId) {
@@ -186,6 +212,31 @@ public class EtudiantService {
       .filter(value -> !value.isEmpty())
       .map(value -> value.toUpperCase())
       .collect(Collectors.collectingAndThen(Collectors.toCollection(LinkedHashSet::new), List::copyOf));
+  }
+
+  private List<String> resolveFingerprintIds(Etudiant student) {
+    // La nouvelle source de vérité est la collection normalisée, avec repli vers le CSV historique.
+    if (student.fingerprintTemplateIds != null && !student.fingerprintTemplateIds.isEmpty()) {
+      return student.fingerprintTemplateIds.stream()
+        .filter(value -> value != null && !value.isBlank())
+        .map(value -> value.trim().toUpperCase())
+        .collect(Collectors.collectingAndThen(Collectors.toCollection(LinkedHashSet::new), List::copyOf));
+    }
+
+    return parseFingerprintIds(student.fingerprintTemplateId);
+  }
+
+  private void syncFingerprintStorage(Etudiant student, List<String> fingerprintIds) {
+    // J'aligne la collection normalisée et la colonne historique pour garder une transition sans rupture.
+    student.fingerprintTemplateIds.clear();
+    student.fingerprintTemplateIds.addAll(fingerprintIds);
+    student.fingerprintTemplateId = fingerprintIds.isEmpty() ? null : String.join(",", fingerprintIds);
+    student.fingerprintRegistered = !fingerprintIds.isEmpty();
+    if (!student.fingerprintRegistered) {
+      student.fingerprintCount = 0;
+    } else if (student.fingerprintCount <= 0) {
+      student.fingerprintCount = fingerprintIds.size();
+    }
   }
 
   private String normalizePhotoUrl(String photoUrl) {
@@ -224,6 +275,7 @@ public class EtudiantService {
     List<Long> creditCourseIds = assignedCourseIds.stream()
       .filter(courseId -> !promotionCourseIds.contains(courseId))
       .toList();
+    List<String> fingerprintIds = resolveFingerprintIds(student);
     return new EtudiantReponse(
       student.id,
       student.name,
@@ -242,7 +294,8 @@ public class EtudiantService {
       creditCourseIds,
       student.photoUrl,
       student.fingerprintRegistered,
-      student.fingerprintTemplateId,
+      fingerprintIds,
+      fingerprintIds.isEmpty() ? null : String.join(",", fingerprintIds),
       student.fingerprintCount,
       student.lastFingerprintScan,
       student.status.name()

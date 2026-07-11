@@ -204,15 +204,15 @@ export default function AdminCours() {
               <Label htmlFor="nom">Nom du cours *</Label>
               <Input
                 id="nom"
-                placeholder="Ex : Mathématiques, Informatique..."
+                placeholder="Saisir le nom du Cours"
                 value={form.nom}
                 onChange={e => setForm(f => ({ ...f, nom: e.target.value }))}
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="code">Code UE</Label>
-                <Input id="code" placeholder="Ex : INFO301" value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} />
+                <Label htmlFor="code">Code</Label>
+                <Input id="code" placeholder="Saisir le code du Cours" value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">

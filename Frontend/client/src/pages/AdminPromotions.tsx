@@ -207,16 +207,16 @@ export default function AdminPromotions() {
           <div className="p-6 space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="promotion-niveau">Niveau *</Label>
-              <Input id="promotion-niveau" placeholder="Ex : L2" value={form.niveau} onChange={(e) => setForm((current) => ({ ...current, niveau: e.target.value }))} />
+              <Input id="promotion-niveau" placeholder="Saisir le niveau de la promotion" value={form.niveau} onChange={(e) => setForm((current) => ({ ...current, niveau: e.target.value }))} />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="promotion-departement">Département *</Label>
-                <Input id="promotion-departement" placeholder="Ex : Informatique" value={form.departement} onChange={(e) => setForm((current) => ({ ...current, departement: e.target.value }))} />
+                <Input id="promotion-departement" placeholder="Saisir le département" value={form.departement} onChange={(e) => setForm((current) => ({ ...current, departement: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="promotion-programme">Filière *</Label>
-                <Input id="promotion-programme" placeholder="Ex : Génie logiciel" value={form.programme} onChange={(e) => setForm((current) => ({ ...current, programme: e.target.value }))} />
+                <Input id="promotion-programme" placeholder="Saisir la filière" value={form.programme} onChange={(e) => setForm((current) => ({ ...current, programme: e.target.value }))} />
               </div>
             </div>
             <div className="space-y-1.5">

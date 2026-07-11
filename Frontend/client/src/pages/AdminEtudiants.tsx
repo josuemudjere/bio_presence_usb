@@ -416,6 +416,7 @@ export default function AdminUsers() {
           promotionId: Number(studentForm.promotionId),
           creditCoursIds: studentForm.creditCoursIds.map(Number),
           photoUrl: studentForm.photoUrl.trim() || undefined,
+          fingerprintTemplateIds: [pendingFingerprintId],
           fingerprintTemplateId: pendingFingerprintId,
           fingerprintCount: 1,
         });
@@ -447,6 +448,7 @@ export default function AdminUsers() {
       creditCoursIds: studentForm.creditCoursIds.map(Number),
       photoUrl: studentForm.photoUrl.trim() || undefined,
       fingerprintRegistered: true,
+      fingerprintTemplateIds: [pendingFingerprintId],
       fingerprintTemplateId: pendingFingerprintId,
       fingerprintCount: 1,
       lastFingerprintScan: formatDisplayDateTime(new Date()),
@@ -609,6 +611,7 @@ export default function AdminUsers() {
       let newCount: number;
 
       seqFingerprintId = appendFingerprintId(student.fingerprintTemplateId, enrolledFingerprintId);
+      const nextFingerprintIds = parseFingerprintIds(seqFingerprintId);
       const fingerprintAlreadyUsed = students.some(
         (item) => item.id !== studentId && hasFingerprintId(item.fingerprintTemplateId, enrolledFingerprintId)
       );
@@ -616,7 +619,7 @@ export default function AdminUsers() {
         toast.error('Cet ID d\'empreinte est déjà associé à un autre étudiant.');
         return;
       }
-      newCount = parseFingerprintIds(seqFingerprintId).length;
+      newCount = nextFingerprintIds.length;
 
       if (isApiReady) {
         const updated = await updateStudentApi(student.id, {
@@ -635,6 +638,7 @@ export default function AdminUsers() {
           creditCoursIds: student.creditCoursIds,
           status: student.academicStatus,
           photoUrl: student.photoUrl,
+          fingerprintTemplateIds: nextFingerprintIds,
           fingerprintTemplateId: seqFingerprintId,
           fingerprintCount: newCount,
         });
@@ -649,6 +653,7 @@ export default function AdminUsers() {
               ? {
                   ...item,
                   fingerprintRegistered: true,
+                  fingerprintTemplateIds: nextFingerprintIds,
                   fingerprintTemplateId: seqFingerprintId,
                   fingerprintCount: newCount,
                   lastFingerprintScan: scanMoment,

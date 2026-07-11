@@ -22,6 +22,7 @@ public record EtudiantRequete(
   List<Long> creditCoursIds,
   String status,
   String photoUrl,
+  List<String> fingerprintTemplateIds,
   String fingerprintTemplateId,
   Integer fingerprintCount
 ) {

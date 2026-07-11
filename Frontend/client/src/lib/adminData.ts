@@ -16,6 +16,7 @@ export interface Student {
   creditCoursIds?: number[];
   photoUrl?: string;
   fingerprintRegistered: boolean;
+  fingerprintTemplateIds?: string[];
   fingerprintTemplateId?: string;
   fingerprintCount?: number;
   lastFingerprintScan?: string;

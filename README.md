@@ -198,6 +198,17 @@ Pour l'authentification, le fichier clé complémentaire est `Frontend/client/sr
 En développement, le frontend tourne généralement sur le port `3000` et l'API Java sur le port `8080`.
 Le fichier `Backend/java-api/src/main/java/com/biopresence/api/config/ConfigCors.java` autorise cette communication cross-origin pour que le navigateur ne bloque pas les requêtes.
 
+### Support multi-doigts par étudiant
+
+BioPresence supporte maintenant proprement plusieurs empreintes pour un même étudiant.
+
+- Le frontend manipule un tableau `fingerprintTemplateIds` dans ses échanges API.
+- Le backend Spring stocke ces identifiants dans une collection normalisée liée à l'étudiant.
+- Le champ historique `fingerprintTemplateId` est encore conservé comme chaîne CSV de compatibilité transitoire pour ne pas casser les anciens flux déjà branchés dessus.
+- `fingerprintCount` reflète désormais le nombre réel d'empreintes associées à l'étudiant.
+
+Concrètement, cela permet d'enrôler plusieurs doigts pour un seul étudiant tout en gardant la recherche biométrique et la détection d'unicité actives sur chaque identifiant individuel.
+
 ---
 
 ##  Dossier `Backend/java-api/` — Backend Spring Boot
@@ -260,7 +271,7 @@ controller/ → dto/ → service/ → repository/ → entity/ → Base de donné
 | Fichier | Table BDD | Rôle |
 |---|---|---|
 | `Administrateur.java` | `administrateurs` | Compte administrateur (email, mot de passe, nom) |
-| `Etudiant.java` | `etudiants` | Étudiant (nom, matricule, département, niveau, empreinte biométrique) |
+| `Etudiant.java` | `etudiants` + `etudiant_fingerprint_template_ids` | Étudiant (nom, matricule, département, niveau) avec collection normalisée d'empreintes biométriques multi-doigts |
 | `Presence.java` | `presences` | Enregistrement de présence (étudiant, horodatage, type entrée/sortie) |
 | `ParametresCours.java` | `parametres_cours` | Configuration du cours (nom, jours, heures, seuil d'éligibilité) |
 | `StatutEtudiant.java` | — | Énumération des statuts d'un étudiant (actif, inactif) |
