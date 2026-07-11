@@ -23,6 +23,7 @@ type TimerResponse = ReturnType<typeof setTimeout>;
 export function useComposition<
   T extends HTMLInputElement | HTMLTextAreaElement = HTMLInputElement,
 >(options: UseCompositionOptions<T> = {}): UseCompositionReturn<T> {
+  // Ce hook sécurise la saisie IME pour les champs qui interceptent Enter ou Escape.
   const {
     onKeyDown: originalOnKeyDown,
     onCompositionStart: originalOnCompositionStart,
@@ -34,6 +35,7 @@ export function useComposition<
   const timer2 = useRef<TimerResponse | null>(null);
 
   const onCompositionStart = usePersistFn((e: React.CompositionEvent<T>) => {
+    // Toute nouvelle composition annule d'abord les timers de sortie précédents.
     if (timer.current) {
       clearTimeout(timer.current);
       timer.current = null;
@@ -47,7 +49,7 @@ export function useComposition<
   });
 
   const onCompositionEnd = usePersistFn((e: React.CompositionEvent<T>) => {
-    // 使用两层 setTimeout 来处理 Safari 浏览器中 compositionEnd 先于 onKeyDown 触发的问题
+    // J'utilise deux tours de boucle pour contourner l'ordre d'événements particulier de Safari.
     timer.current = setTimeout(() => {
       timer2.current = setTimeout(() => {
         c.current = false;
@@ -57,7 +59,7 @@ export function useComposition<
   });
 
   const onKeyDown = usePersistFn((e: React.KeyboardEvent<T>) => {
-    // 在 composition 状态下，阻止 ESC 和 Enter（非 shift+Enter）事件的冒泡
+    // Pendant une composition, je bloque Enter et Escape pour ne pas casser la saisie en cours.
     if (
       c.current &&
       (e.key === "Escape" || (e.key === "Enter" && !e.shiftKey))
@@ -69,6 +71,7 @@ export function useComposition<
   });
 
   const isComposing = usePersistFn(() => {
+    // L'état est exposé sous forme de fonction stable pour rester compatible avec les refs internes.
     return c.current;
   });
 

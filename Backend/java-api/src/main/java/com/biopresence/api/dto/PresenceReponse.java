@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.UUID;
 
+// DTO de sortie représentant un enregistrement de présence prêt pour les tableaux et exports.
 public record PresenceReponse(
   UUID id,
   UUID studentId,

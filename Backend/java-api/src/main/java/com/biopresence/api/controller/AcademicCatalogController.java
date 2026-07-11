@@ -21,11 +21,13 @@ public class AcademicCatalogController {
 
   @GetMapping("/departements")
   public List<DepartementReponse> listDepartements() {
+    // Expose le référentiel des départements pour alimenter les listes de sélection du front.
     return academicCatalogService.listDepartements();
   }
 
   @GetMapping("/programmes")
   public List<ProgrammeReponse> listProgrammes() {
+    // Retourne les programmes académiques disponibles pour le paramétrage des promotions et cours.
     return academicCatalogService.listProgrammes();
   }
 }

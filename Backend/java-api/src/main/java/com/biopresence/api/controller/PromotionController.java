@@ -28,16 +28,19 @@ public class PromotionController {
 
   @GetMapping
   public List<PromotionReponse> list() {
+    // Retourne toutes les promotions configurées pour l'enrôlement et les affectations.
     return promotionService.listAll();
   }
 
   @GetMapping("/{id}")
   public PromotionReponse getById(@PathVariable Long id) {
+    // Charge une promotion précise pour édition ou consultation.
     return promotionService.getById(id);
   }
 
   @PostMapping
   public PromotionReponse create(@Valid @RequestBody PromotionRequete request) {
+    // Crée une promotion avec son département, sa filière et ses cours associés.
     return promotionService.create(request);
   }
 

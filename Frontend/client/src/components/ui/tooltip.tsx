@@ -3,6 +3,7 @@ import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 
 import { cn } from "@/lib/utils";
 
+// Les tooltips restent très légers et sont montés via un provider commun pour contrôler le délai global.
 function TooltipProvider({
   delayDuration = 0,
   ...props
@@ -38,6 +39,7 @@ function TooltipContent({
   children,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Content>) {
+  // Le contenu gère l'animation et la flèche sans exposer ces détails aux écrans métier.
   return (
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Content

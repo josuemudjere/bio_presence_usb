@@ -1,5 +1,6 @@
 package com.biopresence.api.dto;
 
+// DTO de lecture exposant tous les attributs nécessaires à l'administration des cours.
 public record CoursReponse(
   Long id,
   String nom,

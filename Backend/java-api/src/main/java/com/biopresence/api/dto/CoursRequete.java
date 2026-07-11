@@ -3,6 +3,7 @@ package com.biopresence.api.dto;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 
+// DTO d'entrée validé lors de la création ou mise à jour d'un cours.
 public record CoursRequete(
   @NotBlank(message = "Le nom du cours est obligatoire") String nom,
   String code,

@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Size;
 
 import java.util.List;
 
+// DTO d'entrée validé pour la gestion des comptes utilisateurs du système.
 public record UtilisateurRequete(
   @NotBlank(message = "Le nom est obligatoire") String nom,
   String prenom,

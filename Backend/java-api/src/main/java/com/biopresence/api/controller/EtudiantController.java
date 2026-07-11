@@ -28,26 +28,31 @@ public class EtudiantController {
 
   @GetMapping
   public List<EtudiantReponse> list() {
+    // Retourne la liste complète des étudiants pour l'interface d'administration.
     return studentService.listAll();
   }
 
   @GetMapping("/{id}")
   public EtudiantReponse getById(@PathVariable UUID id) {
+    // Charge un étudiant précis pour consultation ou préremplissage du formulaire.
     return studentService.getById(id);
   }
 
   @PostMapping
   public EtudiantReponse create(@Valid @RequestBody EtudiantRequete request) {
+    // Crée un étudiant avec ses données d'identité, d'affectation et d'empreinte éventuelle.
     return studentService.create(request);
   }
 
   @PutMapping("/{id}")
   public EtudiantReponse update(@PathVariable UUID id, @Valid @RequestBody EtudiantRequete request) {
+    // Met à jour la fiche sans exposer directement l'entité persistée au client.
     return studentService.update(id, request);
   }
 
   @DeleteMapping("/{id}")
   public ResponseEntity<Void> delete(@PathVariable UUID id) {
+    // Une suppression réussie répond en 204 pour rester conforme aux usages REST.
     studentService.delete(id);
     return ResponseEntity.noContent().build();
   }

@@ -29,26 +29,31 @@ public class PresenceController {
 
   @PostMapping("/scan")
   public ScanReponse scan(@Valid @RequestBody PresenceScanRequete request) {
+    // Déclenche un pointage biométrique pour le cours ciblé.
     return attendanceService.scan(request);
   }
 
   @PostMapping("/manual")
   public PresenceReponse manual(@Valid @RequestBody PresenceManuelleRequete request) {
+    // Permet une saisie manuelle quand le scan n'est pas possible ou doit être corrigé.
     return attendanceService.createManualAttendance(request);
   }
 
   @GetMapping("/today")
   public List<PresenceReponse> today() {
+    // Raccourci pratique pour la vue journalière courante de l'administration.
     return attendanceService.listForDate(LocalDate.now());
   }
 
   @GetMapping
   public List<PresenceReponse> byDate(@RequestParam String date) {
+    // Filtre les présences sur une date explicite fournie par le client.
     return attendanceService.listForDate(LocalDate.parse(date));
   }
 
   @GetMapping("/course/{coursId}")
   public List<PresenceReponse> byCourseAndDate(@PathVariable Long coursId, @RequestParam String date) {
+    // Restreint l'affichage aux étudiants inscrits dans un cours donné pour une date donnée.
     return attendanceService.listForCourseAndDate(coursId, LocalDate.parse(date));
   }
 
@@ -58,11 +63,13 @@ public class PresenceController {
     @RequestParam String startDate,
     @RequestParam String endDate
   ) {
+    // Sert surtout aux rapports hebdomadaires et exports enseignants.
     return attendanceService.listForCourseBetween(coursId, LocalDate.parse(startDate), LocalDate.parse(endDate));
   }
 
   @DeleteMapping
   public void resetAll() {
+    // Réinitialise le registre des présences, utile en phase de test ou de démonstration.
     attendanceService.resetAllAttendances();
   }
 }

@@ -4,6 +4,7 @@ import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
+// Ces wrappers habillent le Select Radix avec les conventions visuelles du projet.
 function Select({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Root>) {
@@ -30,6 +31,7 @@ function SelectTrigger({
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
   size?: "sm" | "default";
 }) {
+  // Le trigger porte la plupart des styles car c'est lui que l'utilisateur manipule directement.
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"

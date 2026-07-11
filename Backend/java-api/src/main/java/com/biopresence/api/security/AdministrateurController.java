@@ -18,11 +18,13 @@ public class AdministrateurController {
 
   @PostMapping("/login")
   public ResponseEntity<AuthSessionReponse> login(@RequestBody ConnexionRequete request) {
+    // Point d'entrée d'authentification commun aux administrateurs et enseignants.
     return ResponseEntity.ok(authService.login(request));
   }
 
   @GetMapping("/profile/{id}")
   public ResponseEntity<AuthSessionReponse> getProfile(@PathVariable UUID id) {
+    // Retourne la session publique d'un utilisateur à partir de son identifiant.
     return ResponseEntity.ok(authService.getProfile(id));
   }
 
@@ -30,6 +32,7 @@ public class AdministrateurController {
   public ResponseEntity<AuthSessionReponse> updateProfile(
       @PathVariable UUID id,
       @RequestBody MajProfilRequete request) {
+    // Met à jour les informations de profil accessibles depuis le front.
     return ResponseEntity.ok(authService.updateProfile(id, request));
   }
 

@@ -3,7 +3,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { XIcon } from "lucide-react";
 import * as React from "react";
 
-// Context to track composition state across dialog children
+// Ce contexte permet aux champs enfants de dialoguer avec la modale pendant une composition IME.
 const DialogCompositionContext = React.createContext<{
   isComposing: () => boolean;
   setComposing: (composing: boolean) => void;
@@ -34,6 +34,7 @@ function Dialog({
       },
       justEndedComposing: () => justEndedRef.current,
       markCompositionEnd: () => {
+        // Une courte fenêtre de tolérance évite qu'Enter ferme la modale juste après une composition.
         justEndedRef.current = true;
         if (endTimerRef.current) {
           clearTimeout(endTimerRef.current);
@@ -102,17 +103,16 @@ function DialogContent({
 
   const handleEscapeKeyDown = React.useCallback(
     (e: KeyboardEvent) => {
-      // Check both the native isComposing property and our context state
-      // This handles Safari's timing issues with composition events
+      // Je combine l'état natif et le contexte pour couvrir les particularités de Safari.
       const isCurrentlyComposing = (e as any).isComposing || isComposing();
 
-      // If IME is composing, prevent dialog from closing
+      // Une modale ne doit pas se fermer pendant la validation d'une saisie IME.
       if (isCurrentlyComposing) {
         e.preventDefault();
         return;
       }
 
-      // Call user's onEscapeKeyDown if provided
+      // Hors composition, je laisse l'appelant surcharger le comportement si nécessaire.
       onEscapeKeyDown?.(e);
     },
     [isComposing, onEscapeKeyDown]

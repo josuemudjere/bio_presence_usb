@@ -93,6 +93,7 @@ const FORGE_BASE_URL =
 const MAPS_PROXY_URL = `${FORGE_BASE_URL}/v1/maps/proxy`;
 
 function loadMapScript() {
+  // Le script Google Maps est chargé à la demande pour ne pas alourdir le bundle initial.
   return new Promise(resolve => {
     const script = document.createElement("script");
     script.src = `${MAPS_PROXY_URL}/maps/api/js?key=${API_KEY}&v=weekly&libraries=marker,places,geocoding,geometry`;
@@ -126,6 +127,7 @@ export function MapView({
   const map = useRef<google.maps.Map | null>(null);
 
   const init = usePersistFn(async () => {
+    // L'instance Google Maps reste dans une ref car c'est elle qui vit en dehors du cycle React.
     await loadMapScript();
     if (!mapContainer.current) {
       console.error("Map container not found");
@@ -141,11 +143,13 @@ export function MapView({
       mapId: "DEMO_MAP_ID",
     });
     if (onMapReady) {
+      // Je rends la main au parent une fois la carte effectivement instanciée.
       onMapReady(map.current);
     }
   });
 
   useEffect(() => {
+    // L'initialisation n'est lancée qu'au montage du composant.
     init();
   }, [init]);
 

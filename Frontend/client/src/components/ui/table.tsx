@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
+// Cette famille de composants factorise la structure et les styles des tableaux de données.
 function Table({ className, ...props }: React.ComponentProps<"table">) {
   return (
     <div
@@ -51,6 +52,7 @@ function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
 }
 
 function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
+  // Chaque ligne porte déjà ses styles d'hover et de sélection pour les vues administratives.
   return (
     <tr
       data-slot="table-row"

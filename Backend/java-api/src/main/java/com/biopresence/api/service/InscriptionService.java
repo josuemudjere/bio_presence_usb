@@ -24,6 +24,8 @@ public class InscriptionService {
     this.inscriptionRepository = inscriptionRepository;
   }
 
+  // Ce service centralise les inscriptions actives entre étudiants et cours.
+
   public void replaceStudentInscriptions(Etudiant etudiant, List<Cours> baseCourses, List<Cours> creditCourses) {
     inscriptionRepository.deleteByEtudiantId(etudiant.id);
 

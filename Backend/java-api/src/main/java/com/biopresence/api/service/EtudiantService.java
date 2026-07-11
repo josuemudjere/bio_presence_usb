@@ -38,10 +38,12 @@ public class EtudiantService {
   }
 
   public List<EtudiantReponse> listAll() {
+    // Le front consomme des DTO triés par nom pour garder une liste stable et lisible.
     return studentRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).stream().map(this::toResponse).toList();
   }
 
   public List<Etudiant> listEntities() {
+    // Cette variante reste utile pour les services internes qui manipulent directement les entités.
     return studentRepository.findAll(Sort.by(Sort.Direction.ASC, "name"));
   }
 
@@ -50,6 +52,7 @@ public class EtudiantService {
   }
 
   public EtudiantReponse create(EtudiantRequete request) {
+    // Je vérifie d'abord les collisions métier avant de créer la fiche étudiant.
     validateUniqueFields(request.matricule(), request.fingerprintTemplateId(), null);
 
     Etudiant student = new Etudiant(
@@ -73,11 +76,13 @@ public class EtudiantService {
       student.fingerprintCount = request.fingerprintCount();
     }
     studentRepository.save(student);
+    // Les inscriptions sont synchronisées après la sauvegarde pour utiliser l'identité persistée de l'étudiant.
     syncInscriptions(student, request);
     return toResponse(student);
   }
 
   public EtudiantReponse update(UUID id, EtudiantRequete request) {
+    // La mise à jour repart de l'entité existante pour ne pas perdre les informations déjà persistées.
     Etudiant student = findEntity(id);
     validateUniqueFields(request.matricule(), request.fingerprintTemplateId(), id);
 
@@ -117,6 +122,7 @@ public class EtudiantService {
   }
 
   public Optional<Etudiant> findByFingerprintTemplateId(String fingerprintTemplateId) {
+    // La recherche gère les cas où plusieurs identifiants d'empreinte sont stockés dans la même fiche.
     String normalized = normalizeFingerprint(fingerprintTemplateId);
     if (normalized == null) {
       return Optional.empty();
@@ -128,10 +134,12 @@ public class EtudiantService {
   }
 
   public Etudiant findEntity(UUID id) {
+    // Cette recherche centralisée uniformise le message renvoyé quand l'étudiant n'existe pas.
     return studentRepository.findById(id).orElseThrow(() -> new ExceptionIntrouvable("Etudiant introuvable."));
   }
 
   private void validateUniqueFields(String matricule, String fingerprintTemplateId, UUID currentId) {
+    // Le matricule et les empreintes doivent rester uniques à l'échelle du registre.
     String normalizedMatricule = matricule == null ? null : matricule.trim().toUpperCase();
     if (normalizedMatricule != null) {
       studentRepository.findByMatriculeIgnoreCase(normalizedMatricule).ifPresent(existing -> {
@@ -158,6 +166,7 @@ public class EtudiantService {
   }
 
   private String normalizeFingerprint(String fingerprintTemplateId) {
+    // J'aplatis ici la liste d'empreintes dans le format texte attendu par l'entité actuelle.
     if (fingerprintTemplateId == null) {
       return null;
     }
@@ -167,6 +176,7 @@ public class EtudiantService {
   }
 
   private List<String> parseFingerprintIds(String fingerprintTemplateId) {
+    // Je normalise et déduplique les identifiants pour éviter les doublons liés à la casse ou aux espaces.
     if (fingerprintTemplateId == null || fingerprintTemplateId.isBlank()) {
       return List.of();
     }
@@ -197,6 +207,7 @@ public class EtudiantService {
   }
 
   private StatutEtudiant parseStatus(String rawStatus) {
+    // Sans statut explicite, un étudiant est considéré actif par défaut.
     if (rawStatus == null || rawStatus.isBlank()) {
       return StatutEtudiant.ACTIF;
     }
@@ -205,6 +216,7 @@ public class EtudiantService {
   }
 
   private EtudiantReponse toResponse(Etudiant student) {
+    // Je reconstruis la vue client en séparant les cours de promotion des cours de crédit additionnels.
     List<Long> assignedCourseIds = inscriptionService.getCourseIdsForStudent(student.id);
     List<Long> promotionCourseIds = student.promotion == null
       ? List.of()
@@ -238,6 +250,7 @@ public class EtudiantService {
   }
 
   private void syncInscriptions(Etudiant student, EtudiantRequete request) {
+    // Les inscriptions finales combinent les cours hérités de la promotion et les crédits ajoutés manuellement.
     Promotion promotion = student.promotion;
     List<Cours> promotionCourses = promotion == null ? List.of() : promotionService.resolveCours(promotion);
     List<Cours> creditCourses = request.creditCoursIds() == null

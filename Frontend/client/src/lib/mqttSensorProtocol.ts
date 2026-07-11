@@ -44,11 +44,13 @@ export interface SensorStatusMessage {
 }
 
 export function normalizeMqttBaseTopic(value: string | undefined, fallback = DEFAULT_SENSOR_MQTT_BASE_TOPIC): string {
+  // Je nettoie le topic racine pour éviter les doubles slashs dans les sous-topics dérivés.
   const normalized = value?.trim().replace(/\/+$/, '');
   return normalized && normalized.length > 0 ? normalized : fallback;
 }
 
 export function buildSensorTopics(baseTopic: string) {
+  // Toute la convention MQTT est dérivée d'un seul topic racine pour rester facile à reconfigurer.
   return {
     commandTopic: `${baseTopic}/command`,
     eventsTopic: `${baseTopic}/events`,
@@ -62,6 +64,7 @@ export function buildSensorCommandMessage(
   mode?: SensorScanMode,
   message?: string
 ): SensorCommandMessage {
+  // Chaque commande embarque un requestId pour rattacher proprement les événements de retour.
   return {
     version: MQTT_SENSOR_PROTOCOL_VERSION,
     command,
@@ -74,6 +77,7 @@ export function buildSensorCommandMessage(
 }
 
 export function isSensorEventMessage(value: unknown): value is SensorEventMessage {
+  // Ce garde de type filtre les messages mal formés avant qu'ils n'entrent dans la logique de scan.
   if (!value || typeof value !== 'object') {
     return false;
   }
@@ -83,6 +87,7 @@ export function isSensorEventMessage(value: unknown): value is SensorEventMessag
 }
 
 export function isSensorStatusMessage(value: unknown): value is SensorStatusMessage {
+  // Même logique pour les messages d'état publiés par le capteur sur son topic dédié.
   if (!value || typeof value !== 'object') {
     return false;
   }

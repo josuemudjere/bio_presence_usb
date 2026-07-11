@@ -20,6 +20,7 @@ public class RapportController {
 
   @GetMapping("/eligibility")
   public List<LigneEligibiliteReponse> eligibility(@RequestParam(required = false) Long coursId) {
+    // Génère le rapport d'éligibilité à partir des jours de présence déjà consolidés.
     return attendanceService.buildEligibilityReport(coursId);
   }
 }

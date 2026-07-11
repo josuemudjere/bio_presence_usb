@@ -20,6 +20,7 @@ public class AdministrateurService {
   }
 
   public AdministrateurReponse login(ConnexionRequete request) {
+    // Ce flux simple vérifie les identifiants de l'administrateur historique du système.
     Administrateur admin = adminRepository.findByEmail(request.email())
         .orElseThrow(() -> new RuntimeException("Identifiants invalides"));
 
@@ -31,6 +32,7 @@ public class AdministrateurService {
   }
 
   public AdministrateurReponse getById(UUID id) {
+    // Retourne le profil administrateur demandé ou échoue avec un message métier clair.
     Administrateur admin = adminRepository.findById(id)
         .orElseThrow(() -> new ExceptionIntrouvable("Administrateur introuvable"));
     return toResponse(admin);

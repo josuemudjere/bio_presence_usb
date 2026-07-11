@@ -21,11 +21,13 @@ public class ParametresCoursController {
 
   @GetMapping
   public ParametresCoursReponse getCurrent() {
+    // Renvoie la configuration active utilisée pour le calcul des présences et de l'éligibilité.
     return courseSettingsService.getCurrent();
   }
 
   @PutMapping
   public ParametresCoursReponse save(@Valid @RequestBody ParametresCoursRequete request) {
+    // Enregistre les paramètres globaux du cours pilotant les règles de pointage.
     return courseSettingsService.save(request);
   }
 }

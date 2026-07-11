@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+// DTO de sortie détaillant la fiche complète d'un étudiant pour le front admin.
 public record EtudiantReponse(
   UUID id,
   String name,

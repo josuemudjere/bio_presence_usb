@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 import java.util.UUID;
 
+// Repository JPA des inscriptions actives liant étudiants et cours.
 public interface InscriptionRepository extends JpaRepository<Inscription, Long> {
   List<Inscription> findByEtudiantIdOrderByDateInscriptionAsc(UUID etudiantId);
 

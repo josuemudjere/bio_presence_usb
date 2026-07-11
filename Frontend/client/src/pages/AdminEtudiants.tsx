@@ -108,6 +108,7 @@ export default function AdminUsers() {
     event: SensorProgressEvent,
     mode: ScanDialogMode
   ): ScanProgressState => {
+    // Je traduis ici les événements bas niveau du capteur en messages d'interface compréhensibles.
     switch (event.event) {
       case 'ACK':
         return {
@@ -180,14 +181,14 @@ export default function AdminUsers() {
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const serialSupportError = serialSensor.getSupportError();
 
-  // Rafraîchir les exceptions quand la fenêtre reprend le focus (depuis AdminSensor)
+  // Je resynchronise les exceptions locales quand la fenêtre reprend le focus.
   useEffect(() => {
     const refresh = () => setDepartureExceptions(loadDepartureExceptions());
     window.addEventListener('focus', refresh);
     return () => window.removeEventListener('focus', refresh);
   }, []);
 
-  // Synchroniser l'état de connexion du capteur série
+  // L'état du capteur et sa progression sont suivis en direct pour guider l'enrôlement et le pointage.
   useEffect(() => serialSensor.onConnectionChange(setConnectionState), []);
   useEffect(
     () =>
@@ -223,6 +224,7 @@ export default function AdminUsers() {
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   const handlePhotoFile = (file: File | undefined) => {
+    // La photo est compressée côté navigateur pour éviter de stocker un payload inutilement lourd.
     if (!file) return;
     if (file.size > 2 * 1024 * 1024) {
       toast.error('La photo dépasse 2 Mo. Veuillez choisir une image de 2 Mo ou moins.');
@@ -248,6 +250,7 @@ export default function AdminUsers() {
   };
 
   useEffect(() => {
+    // Les sauvegardes locales maintiennent le mode dégradé opérationnel même sans API Java.
     saveStudents(students);
   }, [students]);
 
@@ -264,6 +267,7 @@ export default function AdminUsers() {
   }, [courseSettings]);
 
   useEffect(() => {
+    // Au démarrage, je tente d'hydrater la page depuis l'API puis je retombe sur le mode local si besoin.
     let mounted = true;
 
     const hydrateFromApi = async () => {
@@ -292,7 +296,7 @@ export default function AdminUsers() {
         }
 
         setIsApiReady(false);
-        toast.warning('API Java indisponible: mode local activé dans ce navigateur.');
+        toast.warning('impossible de charger les données');
       }
     };
 
@@ -337,6 +341,7 @@ export default function AdminUsers() {
   });
 
   useEffect(() => {
+    // Le choix d'une promotion préremplit automatiquement le département, le niveau et les cours principaux.
     if (!selectedPromotion) {
       return;
     }

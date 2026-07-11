@@ -4,6 +4,7 @@ import { CheckIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
+// Wrapper simple du checkbox Radix avec le style système et l'indicateur visuel standard.
 function Checkbox({
   className,
   ...props

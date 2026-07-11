@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 import java.time.LocalDate;
 import java.util.List;
 
+// DTO d'entrée utilisé pour créer ou mettre à jour la fiche académique d'un étudiant.
 public record EtudiantRequete(
   @NotBlank(message = "Le nom est obligatoire") String name,
   String postNom,

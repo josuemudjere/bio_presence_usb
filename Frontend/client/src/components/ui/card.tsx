@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
+// La carte encapsule la structure visuelle standard des panneaux du back-office.
 function Card({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -16,6 +17,7 @@ function Card({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
+  // Le header gère aussi le placement éventuel d'une action alignée à droite.
   return (
     <div
       data-slot="card-header"

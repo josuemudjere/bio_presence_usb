@@ -23,12 +23,14 @@ public class AcademicCatalogService {
   }
 
   public List<DepartementReponse> listDepartements() {
+    // Transforme les entités de département en DTO légers pour le front.
     return departementRepository.findAll().stream()
       .map(departement -> new DepartementReponse(departement.idDepartement, departement.nom, departement.code))
       .toList();
   }
 
   public List<ProgrammeReponse> listProgrammes() {
+    // Expose les programmes académiques sans divulguer la structure complète des entités.
     return programmeRepository.findAll().stream()
       .map(programme -> new ProgrammeReponse(
         programme.idProgramme,

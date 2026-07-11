@@ -29,6 +29,7 @@ public class AuthService {
   }
 
   public AuthSessionReponse login(ConnexionRequete request) {
+    // Je tente d'abord le compte administrateur historique, puis les comptes utilisateurs classiques.
     String email = normalizeEmail(request.email());
     String password = request.password();
 
@@ -43,6 +44,7 @@ public class AuthService {
     Utilisateur utilisateur = utilisateurRepository.findByEmail(email)
       .orElseThrow(() -> new RuntimeException("Identifiants invalides"));
 
+    // Un compte désactivé reste authentifiable en base mais doit être bloqué côté service métier.
     if (!utilisateur.password.equals(password)) {
       throw new RuntimeException("Identifiants invalides");
     }
@@ -55,6 +57,7 @@ public class AuthService {
   }
 
   public AuthSessionReponse getProfile(UUID id) {
+    // La récupération du profil supporte à la fois les administrateurs et les utilisateurs métier.
     UUID userId = Objects.requireNonNull(id, "id");
     Administrateur administrateur = administrateurRepository.findById(userId).orElse(null);
     if (administrateur != null) {
@@ -67,6 +70,7 @@ public class AuthService {
   }
 
   public AuthSessionReponse updateProfile(UUID id, MajProfilRequete request) {
+    // La mise à jour mutualise les règles communes tout en respectant les deux sources de données existantes.
     UUID userId = Objects.requireNonNull(id, "id");
     Administrateur administrateur = administrateurRepository.findById(userId).orElse(null);
     if (administrateur != null) {
@@ -115,6 +119,7 @@ public class AuthService {
   }
 
   public void updatePassword(UUID id, String currentPassword, String newPassword) {
+    // Le changement de mot de passe impose toujours la vérification de l'ancien secret.
     UUID userId = Objects.requireNonNull(id, "id");
     Administrateur administrateur = administrateurRepository.findById(userId).orElse(null);
     if (administrateur != null) {
@@ -144,6 +149,7 @@ public class AuthService {
   }
 
   private String normalizeEmail(String email) {
+    // L'email est normalisé en minuscules pour garder des recherches et contraintes cohérentes.
     if (email == null || email.isBlank()) {
       throw new RuntimeException("L'email est obligatoire");
     }
@@ -151,6 +157,7 @@ public class AuthService {
   }
 
   private String normalizeRole(String role) {
+    // L'ancien rôle "user" est ramené vers "teacher" pour rester compatible avec le front actuel.
     if (role == null || role.isBlank()) {
       return "teacher";
     }
@@ -184,6 +191,7 @@ public class AuthService {
   }
 
   private List<Long> parseCoursIds(String rawCoursIds, Long fallbackCoursId) {
+    // Certains comptes stockent encore plusieurs cours dans une chaîne CSV historique.
     if (rawCoursIds == null || rawCoursIds.isBlank()) {
       return fallbackCoursId == null ? List.of() : List.of(fallbackCoursId);
     }

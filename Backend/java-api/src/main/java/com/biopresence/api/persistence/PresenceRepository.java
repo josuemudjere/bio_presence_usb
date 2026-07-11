@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+// Repository JPA du registre des présences avec requêtes optimisées par date et étudiant.
 public interface PresenceRepository extends JpaRepository<Presence, UUID> {
   List<Presence> findByRecordDateOrderByCheckInAsc(LocalDate recordDate);
 

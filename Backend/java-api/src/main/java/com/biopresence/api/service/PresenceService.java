@@ -47,6 +47,7 @@ public class PresenceService {
   }
 
   public ScanReponse scan(PresenceScanRequete request) {
+    // Le scan biométrique ouvre ou clôture la présence du jour selon l'état déjà enregistré.
     if (!courseSettingsService.isConfigured()) {
       throw new IllegalStateException("Configurez d'abord le cours avant le pointage.");
     }
@@ -63,6 +64,7 @@ public class PresenceService {
       .findFirstByStudentIdAndRecordDateAndCheckOutIsNullOrderByCheckInAsc(student.id, today);
 
     if (openRecord.isPresent()) {
+      // Une présence ouverte devient ici une sortie du même jour.
       Presence record = openRecord.get();
       record.checkOut = now;
       record.status = StatutPresence.PRESENT;
@@ -78,6 +80,7 @@ public class PresenceService {
       throw new IllegalStateException("Cet etudiant a deja effectue une entree et une sortie pour cette date.");
     }
 
+    // Si rien n'est ouvert et qu'aucun cycle complet n'existe, on crée l'entrée du jour.
     Presence record = new Presence(student.id, formatStudentName(student), student.matricule, student.department, today, now);
     record.modeSaisie = ModeSaisie.EMPREINTE;
     attendanceRecordRepository.save(record);
@@ -87,6 +90,7 @@ public class PresenceService {
   }
 
   public PresenceReponse createManualAttendance(PresenceManuelleRequete request) {
+    // La saisie manuelle suit les mêmes règles d'accès au cours que le scan biométrique.
     Etudiant student = studentService.findEntity(Objects.requireNonNull(request.studentId(), "studentId"));
     validateCourseAccess(student, request.coursId());
 
@@ -117,6 +121,7 @@ public class PresenceService {
   }
 
   public List<PresenceReponse> listForDate(LocalDate date) {
+    // Retourne le registre complet d'une date donnée dans l'ordre chronologique.
     return attendanceRecordRepository.findByRecordDateOrderByCheckInAsc(date).stream().map(this::toResponse).toList();
   }
 
@@ -137,10 +142,12 @@ public class PresenceService {
   }
 
   public void resetAllAttendances() {
+    // Utilisé surtout pour repartir d'un état vierge en démonstration ou test fonctionnel.
     attendanceRecordRepository.deleteAllInBatch();
   }
 
   public List<LigneEligibiliteReponse> buildEligibilityReport(Long coursId) {
+    // L'éligibilité est calculée à partir du nombre de jours distincts pointés pour chaque étudiant.
     ParametresCours settings = courseSettingsService.getCurrentEntity();
     if (settings.courseName == null || settings.courseName.isBlank() || settings.courseDays <= 0 || settings.courseHours <= 0) {
       throw new IllegalStateException("Configurez d'abord le cours avant de generer le rapport d'eligibilite.");
@@ -171,6 +178,7 @@ public class PresenceService {
   }
 
   public PresenceReponse toResponse(Presence record) {
+    // Je reconstruis le nom depuis la fiche étudiante si elle existe encore pour garder une sortie cohérente.
     String resolvedStudentName = record.studentName;
     try {
       resolvedStudentName = formatStudentName(studentService.findEntity(record.studentId));
@@ -211,6 +219,7 @@ public class PresenceService {
   }
 
   private void validateCourseAccess(Etudiant student, Long coursId) {
+    // Un pointage ne doit être accepté que si l'étudiant est bien inscrit au cours ciblé.
     if (coursId == null) {
       return;
     }

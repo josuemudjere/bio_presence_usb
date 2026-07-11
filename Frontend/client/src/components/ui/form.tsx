@@ -29,6 +29,7 @@ const FormFieldContext = React.createContext<FormFieldContextValue>(
   {} as FormFieldContextValue
 );
 
+// Ces helpers encapsulent react-hook-form pour standardiser les ids, labels et messages d'erreur.
 const FormField = <
   TFieldValues extends FieldValues = FieldValues,
   TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>,
@@ -105,6 +106,7 @@ function FormLabel({
 }
 
 function FormControl({ ...props }: React.ComponentProps<typeof Slot>) {
+  // Le contrôle relie automatiquement champ, description et message d'erreur via les attributs ARIA.
   const { error, formItemId, formDescriptionId, formMessageId } =
     useFormField();
 

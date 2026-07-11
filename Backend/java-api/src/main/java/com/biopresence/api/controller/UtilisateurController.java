@@ -29,11 +29,13 @@ public class UtilisateurController {
 
   @GetMapping
   public List<UtilisateurReponse> list() {
+    // Retourne la liste des comptes applicatifs gérés par l'administration.
     return utilisateurService.listAll();
   }
 
   @GetMapping("/{id}")
   public UtilisateurReponse getById(@PathVariable UUID id) {
+    // Charge un utilisateur pour consultation ou mise à jour.
     return utilisateurService.getById(id);
   }
 

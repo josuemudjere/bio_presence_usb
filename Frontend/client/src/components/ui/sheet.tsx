@@ -6,6 +6,7 @@ import { XIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
+// Le sheet réutilise le moteur de dialog pour fournir un panneau coulissant latéral ou vertical.
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />;
 }
@@ -52,6 +53,7 @@ function SheetContent({
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left";
 }) {
+  // La position choisie pilote ici l'animation d'entrée/sortie et la bordure latérale adéquate.
   return (
     <SheetPortal>
       <SheetOverlay />
