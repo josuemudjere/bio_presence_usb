@@ -23,7 +23,7 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    strictPort: false, // Will find next available port if 3000 is busy
+    strictPort: false, //Trouvera le prochain port disponible si le port 3000 est occupé.
     host: true,
     allowedHosts: [
       "localhost",

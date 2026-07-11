@@ -226,7 +226,7 @@ pnpm dev
 
 Ce que chaque commande fait:
 
-- `pnpm mqtt:broker:up`: démarre un broker Eclipse Mosquitto via Docker avec MQTT TCP sur `1884` côté machine locale et MQTT over WebSocket sur `9001`
+- `pnpm mqtt:broker:up`: démarre un broker Eclipse Mosquitto via Docker avec MQTT TCP sur `1884 ou 1883` côté machine locale et MQTT over WebSocket sur `9001`
 - `pnpm mqtt:sensor:mock`: lance un faux capteur qui consomme `command` et publie `status` / `events`
 - `pnpm mqtt:broker:down`: arrête le broker local
 
