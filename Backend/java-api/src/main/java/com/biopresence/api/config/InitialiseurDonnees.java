@@ -28,6 +28,7 @@ public class InitialiseurDonnees implements CommandLineRunner {
   public void run(String... args) {
     migrateStudentStatusColumn();
     migrateStudentFingerprintStorage();
+    migrateStudentInscriptions();
     adminService.seedDefault();
   }
 
@@ -49,27 +50,16 @@ public class InitialiseurDonnees implements CommandLineRunner {
   }
 
   private void migrateStudentFingerprintStorage() {
-    // Je recopie au démarrage les anciens CSV d'empreintes vers la table normalisée multi-doigts.
+    // Je recopie au démarrage les anciens CSV d'empreintes vers les stockages normalisés liés à l'étudiant.
     for (Etudiant student : studentService.listEntities()) {
       List<String> normalizedIds = parseFingerprintIds(student.fingerprintTemplateId);
 
       if (normalizedIds.isEmpty()) {
-        if (!student.fingerprintTemplateIds.isEmpty() || student.fingerprintRegistered || student.fingerprintCount != 0) {
-          student.fingerprintTemplateIds.clear();
-          student.fingerprintTemplateId = null;
-          student.fingerprintRegistered = false;
-          student.fingerprintCount = 0;
-          studentService.save(student);
-        }
-        continue;
-      }
-
-      boolean needsSync = !student.fingerprintTemplateIds.equals(new LinkedHashSet<>(normalizedIds))
-        || !String.join(",", normalizedIds).equals(student.fingerprintTemplateId)
-        || !student.fingerprintRegistered
-        || student.fingerprintCount != normalizedIds.size();
-
-      if (!needsSync) {
+        student.fingerprintTemplateIds.clear();
+        student.fingerprintTemplateId = null;
+        student.fingerprintRegistered = false;
+        student.fingerprintCount = 0;
+        studentService.save(student);
         continue;
       }
 
@@ -79,6 +69,22 @@ public class InitialiseurDonnees implements CommandLineRunner {
       student.fingerprintRegistered = true;
       student.fingerprintCount = normalizedIds.size();
       studentService.save(student);
+    }
+  }
+
+  private void migrateStudentInscriptions() {
+    // Je convertis les anciennes affectations étudiant->promotion/cours vers la table inscriptions quand elle est vide.
+    jdbcTemplate.update("""
+      INSERT INTO inscriptions (date_inscription, statut, notes, etudiant_id, cours_id, semestre_id)
+      SELECT CURRENT_DATE, 'VALIDEE', 'Affectation legacy via coursId', e.id, e.cours_id, NULL
+      FROM etudiants e
+      LEFT JOIN inscriptions i ON i.etudiant_id = e.id AND i.cours_id = e.cours_id
+      LEFT JOIN cours c ON c.id = e.cours_id
+      WHERE e.cours_id IS NOT NULL AND c.id IS NOT NULL AND i.id_inscription IS NULL
+      """);
+
+    for (Etudiant student : studentService.listEntities()) {
+      studentService.backfillLegacyInscriptionsIfMissing(student);
     }
   }
 

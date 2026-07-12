@@ -34,6 +34,7 @@ interface ApiAttendance {
   studentId: string;
   seanceId?: number | null;
   studentName: string;
+  photoUrl?: string;
   matricule: string;
   department: string;
   dateHeure?: string;
@@ -62,6 +63,11 @@ interface ApiScanResponse {
   attendance: ApiAttendance;
 }
 
+interface SaveDepartureJustificationInput {
+  motifJustificatif: string | null;
+  estJustifiee: boolean;
+}
+
 interface ApiCours {
   id: number;
   nom: string;
@@ -79,6 +85,7 @@ interface ApiCours {
   nbJours: number;
   nbHeures: number;
   seuilEligibilite: number;
+  enrolledStudentCount?: number;
   heureDebut?: string;
   heureFin?: string;
 }
@@ -247,6 +254,7 @@ function toClientCours(apiCours: ApiCours): Cours {
     nbJours: apiCours.nbJours,
     nbHeures: apiCours.nbHeures,
     seuilEligibilite: apiCours.seuilEligibilite,
+    enrolledStudentCount: apiCours.enrolledStudentCount ?? 0,
     heureDebut: apiCours.heureDebut,
     heureFin: apiCours.heureFin,
   };
@@ -277,6 +285,7 @@ function toClientAttendance(apiAttendance: ApiAttendance): AttendanceRecord {
     studentId: apiAttendance.studentId,
     seanceId: apiAttendance.seanceId ?? null,
     studentName: apiAttendance.studentName,
+    photoUrl: apiAttendance.photoUrl,
     matricule: apiAttendance.matricule,
     department: apiAttendance.department,
     dateHeure: apiAttendance.dateHeure,
@@ -295,6 +304,11 @@ function toClientAttendance(apiAttendance: ApiAttendance): AttendanceRecord {
 
 export async function fetchStudents(): Promise<Student[]> {
   const students = await request<ApiStudent[]>('/students');
+  return students.map(toClientStudent);
+}
+
+export async function fetchStudentsForCours(coursId: number): Promise<Student[]> {
+  const students = await request<ApiStudent[]>(`/students/course/${coursId}`);
   return students.map(toClientStudent);
 }
 
@@ -418,6 +432,18 @@ export async function scanAttendance(fingerprintTemplateId: string): Promise<{ m
     message: response.message,
     attendance: toClientAttendance(response.attendance),
   };
+}
+
+export async function saveDepartureJustification(
+  attendanceId: string,
+  input: SaveDepartureJustificationInput
+): Promise<AttendanceRecord> {
+  const attendance = await request<ApiAttendance>(`/attendance/${attendanceId}/departure-justification`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+
+  return toClientAttendance(attendance);
 }
 
 export async function scanAttendanceForCours(fingerprintTemplateId: string, coursId: number): Promise<{ message: string; attendance: AttendanceRecord }> {

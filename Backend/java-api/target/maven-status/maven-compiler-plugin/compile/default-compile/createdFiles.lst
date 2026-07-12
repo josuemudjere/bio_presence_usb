@@ -11,6 +11,7 @@ com/biopresence/api/controller/CoursController.class
 com/biopresence/api/dto/CoursReponse.class
 com/biopresence/api/dto/PresenceScanRequete.class
 com/biopresence/api/dto/EtudiantReponse.class
+com/biopresence/api/persistence/JustificatifRepository.class
 com/biopresence/api/entity/Utilisateur.class
 com/biopresence/api/config/ConfigCors.class
 com/biopresence/api/exception/ExceptionIntrouvable.class
@@ -18,6 +19,7 @@ com/biopresence/api/dto/CoursRequete.class
 com/biopresence/api/dto/ParametresCoursReponse.class
 com/biopresence/api/dto/ParametresCoursRequete.class
 com/biopresence/api/dto/EtudiantRequete.class
+com/biopresence/api/dto/JustificatifDepartAnticipeRequete.class
 com/biopresence/api/entity/Etudiant.class
 com/biopresence/api/dto/AdministrateurReponse.class
 com/biopresence/api/dto/UtilisateurReponse.class

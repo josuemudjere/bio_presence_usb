@@ -29,6 +29,7 @@ export interface AttendanceRecord {
   studentId: string;
   seanceId?: number | null;
   studentName: string;
+  photoUrl?: string;
   matricule: string;
   department: string;
   dateHeure?: string;
@@ -69,6 +70,7 @@ export interface Cours {
   nbJours: number;
   nbHeures: number;
   seuilEligibilite: number;
+  enrolledStudentCount?: number;
   heureDebut?: string;
   heureFin?: string;
 }
@@ -110,22 +112,11 @@ export interface Utilisateur {
 }
 
 export type DepartureReason = 'maladie' | 'urgence-familiale' | 'urgence-travail';
-export type DepartureStatus = 'justified' | 'absent';
-
-export interface DepartureException {
-  attendanceId: string;
-  studentId: string;
-  studentName: string;
-  reason: DepartureReason | null; // null = aucune raison = absent
-  status: DepartureStatus;
-  recordedAt: string; // ISO
-}
 
 const STUDENTS_KEY = 'biopresence_students';
 const ATTENDANCE_KEY = 'biopresence_attendance_records';
 const EXPORTS_COUNT_KEY = 'biopresence_exports_count';
 const COURSE_SETTINGS_KEY = 'biopresence_course_settings';
-const DEPARTURE_EXCEPTIONS_KEY = 'biopresence_departure_exceptions';
 
 const DEFAULT_STUDENTS: Student[] = [];
 const DEFAULT_ATTENDANCE_RECORDS: AttendanceRecord[] = [];
@@ -220,22 +211,4 @@ export function saveCourseSettings(settings: CourseSettings) {
   }
 
   window.localStorage.setItem(COURSE_SETTINGS_KEY, JSON.stringify(settings));
-}
-
-export function loadDepartureExceptions(): DepartureException[] {
-  if (typeof window === 'undefined') {
-    return [];
-  }
-
-  return parseJSON<DepartureException[]>(window.localStorage.getItem(DEPARTURE_EXCEPTIONS_KEY), []);
-}
-
-export function saveDepartureException(exc: DepartureException): void {
-  // Une exception remplace toujours la précédente pour le même pointage afin d'éviter les doublons.
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  const existing = loadDepartureExceptions().filter((e) => e.attendanceId !== exc.attendanceId);
-  window.localStorage.setItem(DEPARTURE_EXCEPTIONS_KEY, JSON.stringify([...existing, exc]));
 }

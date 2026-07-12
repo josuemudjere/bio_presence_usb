@@ -5,8 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/contexts/AuthContext';
-import { fetchAttendanceForCours, fetchAttendanceWeekForCours, fetchCours } from '@/lib/adminApi';
-import type { AttendanceRecord, Cours } from '@/lib/adminData';
+import { fetchAttendanceForCours, fetchAttendanceWeekForCours, fetchCours, fetchStudentsForCours } from '@/lib/adminApi';
+import type { AttendanceRecord, Cours, Student } from '@/lib/adminData';
 import { serialSensor, type ConnectionState } from '@/lib/serialSensor';
 import { toast } from 'sonner';
 
@@ -28,6 +28,7 @@ export default function UtilisateurTableauDeBord() {
   const assignedCourseIds = user?.coursIds ?? (user?.coursId != null ? [user.coursId] : []);
   const [assignedCourses, setAssignedCourses] = useState<Cours[]>([]);
   const [selectedCoursId, setSelectedCoursId] = useState<number | null>(assignedCourseIds[0] ?? null);
+  const [enrolledStudents, setEnrolledStudents] = useState<Student[]>([]);
   const [todayRecords, setTodayRecords] = useState<AttendanceRecord[]>([]);
   const [weekRecords, setWeekRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -46,6 +47,23 @@ export default function UtilisateurTableauDeBord() {
     return toIsoDate(friday);
   }, []);
 
+  const loadTeacherCourses = async (mounted?: { current: boolean }) => {
+    try {
+      const allCourses = await fetchCours();
+      if (mounted && !mounted.current) {
+        return;
+      }
+
+      setAssignedCourses(allCourses.filter((course) => assignedCourseIds.includes(course.id)));
+    } catch {
+      if (mounted && !mounted.current) {
+        return;
+      }
+
+      setAssignedCourses([]);
+    }
+  };
+
   const selectedCourse = assignedCourses.find((course) => course.id === selectedCoursId) ?? null;
 
   useEffect(() => serialSensor.onConnectionChange(setConnectionState), []);
@@ -57,29 +75,26 @@ export default function UtilisateurTableauDeBord() {
 
   useEffect(() => {
     // Le catalogue complet est filtré côté client pour n'afficher que les cours assignés.
-    let mounted = true;
+    const mounted = { current: true };
 
-    const loadCourses = async () => {
-      try {
-        const allCourses = await fetchCours();
-        if (!mounted) {
-          return;
-        }
-        setAssignedCourses(allCourses.filter((course) => assignedCourseIds.includes(course.id)));
-      } catch {
-        if (!mounted) {
-          return;
-        }
-        setAssignedCourses([]);
-      }
-    };
-
-    void loadCourses();
+    void loadTeacherCourses(mounted);
 
     return () => {
-      mounted = false;
+      mounted.current = false;
     };
-  }, [user?.id]);
+  }, [assignedCourseIds, user?.id, user?.coursId, user?.coursIds]);
+
+  useEffect(() => {
+    // Quand l'enseignant revient sur la page, je recharge la liste des étudiants pour refléter les nouveaux enrôlements.
+    const refreshOnFocus = () => {
+      void loadTeacherCourses();
+    };
+
+    window.addEventListener('focus', refreshOnFocus);
+    return () => {
+      window.removeEventListener('focus', refreshOnFocus);
+    };
+  }, [assignedCourseIds, user?.id, user?.coursId, user?.coursIds]);
 
   useEffect(() => {
     // Le changement de cours entraîne le rechargement des chiffres du jour et de la semaine.
@@ -87,6 +102,7 @@ export default function UtilisateurTableauDeBord() {
 
     const loadStats = async () => {
       if (!selectedCoursId) {
+        setEnrolledStudents([]);
         setTodayRecords([]);
         setWeekRecords([]);
         return;
@@ -94,15 +110,17 @@ export default function UtilisateurTableauDeBord() {
 
       setLoading(true);
       try {
-        const [todayRows, weekRows] = await Promise.all([
+        const [todayRows, weekRows, students] = await Promise.all([
           fetchAttendanceForCours(selectedCoursId, todayIso),
           fetchAttendanceWeekForCours(selectedCoursId, weekStart, weekEnd),
+          fetchStudentsForCours(selectedCoursId),
         ]);
 
         if (!mounted) {
           return;
         }
 
+        setEnrolledStudents(students);
         setTodayRecords(todayRows);
         setWeekRecords(weekRows);
       } catch {
@@ -110,6 +128,7 @@ export default function UtilisateurTableauDeBord() {
           return;
         }
 
+        setEnrolledStudents([]);
         setTodayRecords([]);
         setWeekRecords([]);
       } finally {
@@ -261,7 +280,7 @@ export default function UtilisateurTableauDeBord() {
                     </Select>
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-3 sm:grid-cols-3">
                     <div className="rounded-xl bg-slate-50 p-4">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Horaire</p>
                       <p className="mt-1 text-sm font-medium text-slate-800">{selectedCourse?.heureDebut || '--:--'} à {selectedCourse?.heureFin || '--:--'}</p>
@@ -270,6 +289,31 @@ export default function UtilisateurTableauDeBord() {
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Code</p>
                       <p className="mt-1 text-sm font-medium text-slate-800">{selectedCourse?.code || 'Non défini'}</p>
                     </div>
+                    <div className="rounded-xl bg-slate-50 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Inscrits</p>
+                      <p className="mt-1 text-sm font-medium text-slate-800">{loading ? '--' : selectedCourse?.enrolledStudentCount ?? 0} étudiant(s)</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Étudiants liés au cours</p>
+                    {loading ? (
+                      <p className="mt-2 text-sm text-slate-500">Chargement des étudiants...</p>
+                    ) : enrolledStudents.length === 0 ? (
+                      <p className="mt-2 text-sm text-slate-500">Aucun étudiant inscrit dans inscriptions pour ce cours.</p>
+                    ) : (
+                      <div className="mt-3 max-h-48 space-y-2 overflow-y-auto pr-1">
+                        {enrolledStudents.map((student) => (
+                          <div key={student.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
+                            <div>
+                              <p className="text-sm font-medium text-slate-800">{student.name} {student.postNom ?? ''} {student.prenom ?? ''}</p>
+                              <p className="text-xs text-slate-500">{student.department}</p>
+                            </div>
+                            <span className="text-xs font-semibold text-slate-600">{student.matricule}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>

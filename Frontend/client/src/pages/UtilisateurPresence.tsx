@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Fingerprint, Loader2, LogOut, ScanSearch, PencilLine } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Fingerprint, Loader2, LogOut, ScanSearch } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { loadCourseSettings, saveDepartureException, type Cours, type CourseSettings, type DepartureReason, type Student } from '@/lib/adminData';
-import { createManualAttendance, fetchCours, fetchStudents, scanAttendanceForCours } from '@/lib/adminApi';
+import { loadCourseSettings, type Cours, type CourseSettings, type DepartureReason, type Student } from '@/lib/adminData';
+import { fetchCours, fetchStudentsForCours, saveDepartureJustification, scanAttendanceForCours } from '@/lib/adminApi';
 import { notifyRejectedFingerprintScan, scanFingerprintFromSensor } from '@/lib/biometricSensor';
 import { serialSensor, type ConnectionState } from '@/lib/serialSensor';
 import { hasFingerprintId } from '@/lib/utils';
@@ -26,10 +25,15 @@ interface SensorResult {
 
 type SensorState = 'idle' | 'loading' | 'success' | 'error';
 
-const RESULT_DISPLAY_DURATION_MS = 2 * 60 * 1000;
+const RESULT_DISPLAY_DURATION_MS = 60 * 1000;
 const AUTO_QUEUE_SUCCESS_COOLDOWN_MS = 1200;
 const AUTO_QUEUE_ERROR_COOLDOWN_MS = 3200;
 const TEACHER_SELECTED_COURSE_KEY = 'biopresence_teacher_selected_course';
+const DEPARTURE_REASON_LABELS: Record<DepartureReason, string> = {
+  maladie: 'Maladie',
+  'urgence-familiale': 'Urgence familiale',
+  'urgence-travail': 'Urgence au travail',
+};
 
 function getAvatarUrl(studentName: string): string {
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(studentName)}&background=0f172a&color=ffffff&size=256`;
@@ -71,6 +75,13 @@ function resolveStudentPhoto(student?: Student, fallbackName?: string): string {
 }
 
 function normalizeErrorMessage(input: unknown): string {
+  if (input instanceof Error) {
+    const message = input.message.trim();
+    if (message.length > 0) {
+      return message;
+    }
+  }
+
   return 'Empreinte non reconnue.';
 }
 
@@ -102,19 +113,9 @@ export default function UtilisateurPresence() {
   const resultTimeoutRef = useRef<number | null>(null);
   const pageActiveRef = useRef(true);
   const selectedCourse = assignedCourses.find((course) => course.id === selectedCoursId) ?? null;
-  const filteredStudents = useMemo(() => {
-    if (selectedCoursId == null) {
-      return [];
-    }
-
-    return students.filter((student) => {
-      if (student.coursIds && student.coursIds.length > 0) {
-        return student.coursIds.includes(selectedCoursId);
-      }
-
-      return student.coursId === selectedCoursId;
-    });
-  }, [students, selectedCoursId]);
+  const isCourseScheduleConfigured = Boolean(selectedCourse?.heureDebut && selectedCourse?.heureFin);
+  const canScan = connectionState === 'connected' && Boolean(selectedCoursId) && isCourseScheduleConfigured;
+  const filteredStudents = useMemo(() => students, [students]);
 
   // Départ anticipé
   const [earlyDeparturePending, setEarlyDeparturePending] = useState<{
@@ -125,22 +126,26 @@ export default function UtilisateurPresence() {
     checkOutTime: string;
   } | null>(null);
   const [selectedReason, setSelectedReason] = useState<DepartureReason | null>(null);
-  const [manualStudentId, setManualStudentId] = useState('');
-  const [manualCheckIn, setManualCheckIn] = useState('');
-  const [manualCheckOut, setManualCheckOut] = useState('');
-  const [manualSaving, setManualSaving] = useState(false);
 
-  const handleConfirmDeparture = (reason: DepartureReason | null) => {
-    // Une sortie anticipée crée une exception locale qui sera visible dans les contrôles ultérieurs.
+  const handleConfirmDeparture = async (reason: DepartureReason | null) => {
+    // Une sortie anticipée est persistée côté backend pour rester visible dans tout le système.
     if (!earlyDeparturePending) return;
-    saveDepartureException({
-      attendanceId: earlyDeparturePending.attendanceId,
-      studentId: earlyDeparturePending.studentId,
-      studentName: earlyDeparturePending.studentName,
-      reason,
-      status: reason ? 'justified' : 'absent',
-      recordedAt: new Date().toISOString(),
-    });
+    const pendingDeparture = earlyDeparturePending;
+    const reasonLabel = reason ? DEPARTURE_REASON_LABELS[reason] : null;
+
+    if (!isApiReady) {
+      return;
+    }
+
+    try {
+      await saveDepartureJustification(pendingDeparture.attendanceId, {
+        motifJustificatif: reasonLabel,
+        estJustifiee: reason !== null,
+      });
+    } catch {
+      return;
+    }
+
     setEarlyDeparturePending(null);
     setSelectedReason(null);
   };
@@ -179,6 +184,11 @@ export default function UtilisateurPresence() {
     () => new Intl.DateTimeFormat('fr-FR', { dateStyle: 'full', timeStyle: 'short' }).format(new Date()),
     [sensorState, result]
   );
+  const sensorStatusLabel = connectionState === 'connected'
+    ? 'Capteur connecté et prêt'
+    : connectionState === 'connecting'
+    ? 'Connexion au capteur en cours'
+    : 'Capteur hors ligne';
 
   useEffect(() => {
     // Je mémorise le cours choisi pour éviter à l'enseignant de le re-sélectionner à chaque visite.
@@ -201,23 +211,36 @@ export default function UtilisateurPresence() {
   }, [selectedCoursId]);
 
   useEffect(() => {
-    // L'hydratation charge uniquement les cours réellement affectés à l'enseignant connecté.
+    // Je charge le catalogue enseignant, puis la liste des inscrits du cours sélectionné depuis la base.
     let mounted = true;
     const hydrate = async () => {
       try {
-        const [apiStudents, apiCours] = await Promise.all([fetchStudents(), fetchCours()]);
+        const apiCours = await fetchCours();
         if (!mounted) return;
-        setStudents(apiStudents);
-        setAssignedCourses(apiCours.filter((course) => assignedCourseIds.includes(course.id)));
+
+        const filteredCourses = apiCours.filter((course) => assignedCourseIds.includes(course.id));
+        setAssignedCourses(filteredCourses);
+
+        const effectiveCoursId = selectedCoursId ?? filteredCourses[0]?.id ?? null;
+        if (effectiveCoursId != null) {
+          const apiStudents = await fetchStudentsForCours(effectiveCoursId);
+          if (!mounted) return;
+          setStudents(apiStudents);
+        } else {
+          setStudents([]);
+        }
+
         setIsApiReady(true);
       } catch {
         if (!mounted) return;
+        setStudents([]);
+        setAssignedCourses([]);
         setIsApiReady(false);
       }
     };
     hydrate();
     return () => { mounted = false; };
-  }, [user?.id]);
+  }, [assignedCourseIds, selectedCoursId, user?.id]);
 
   const handleScan = async () => {
     // Un seul scan à la fois pour éviter les doublons et les collisions de réponse capteur.
@@ -279,7 +302,7 @@ export default function UtilisateurPresence() {
         studentName,
         matricule: scanResponse.attendance.matricule,
         department: scanResponse.attendance.department,
-        photoUrl: resolveStudentPhoto(matchedStudent, studentName),
+        photoUrl: scanResponse.attendance.photoUrl || resolveStudentPhoto(matchedStudent, studentName),
         scannedAtLabel: formatScanTimestamp(new Date()),
         attendanceType,
         attendanceId: scanResponse.attendance.id,
@@ -295,7 +318,7 @@ export default function UtilisateurPresence() {
           attendanceId: scanResponse.attendance.id,
           studentId: scanResponse.attendance.studentId,
           studentName,
-          photoUrl: resolveStudentPhoto(matchedStudent, studentName),
+          photoUrl: scanResponse.attendance.photoUrl || resolveStudentPhoto(matchedStudent, studentName),
           checkOutTime,
         });
         setSelectedReason(null);
@@ -360,275 +383,202 @@ export default function UtilisateurPresence() {
     if (skipRetry) return;
     const timeoutId = window.setTimeout(() => {
       setSensorState('idle');
-      setIsListening(false);
+      setIsListening(connectionState === 'connected' && Boolean(selectedCoursId) && isCourseScheduleConfigured);
       if (sensorState === 'error') {
         setErrorMessage('');
       }
     }, sensorState === 'success' ? AUTO_QUEUE_SUCCESS_COOLDOWN_MS : AUTO_QUEUE_ERROR_COOLDOWN_MS);
     return () => { window.clearTimeout(timeoutId); };
-  }, [autoQueueEnabled, sensorState, errorMessage]);
-
-  const handleManualAttendance = async () => {
-    if (!selectedCoursId || !manualStudentId) {
-      return;
-    }
-
-    setManualSaving(true);
-    try {
-      await createManualAttendance({
-        studentId: manualStudentId,
-        coursId: selectedCoursId,
-        checkIn: manualCheckIn || undefined,
-        checkOut: manualCheckOut || undefined,
-      });
-      setManualStudentId('');
-      setManualCheckIn('');
-      setManualCheckOut('');
-      setSensorState('success');
-      setResult(null);
-      setErrorMessage('');
-    } catch (error) {
-      setSensorState('error');
-      setErrorMessage(error instanceof Error ? error.message : 'Impossible de saisir la présence manuellement.');
-    } finally {
-      setManualSaving(false);
-    }
-  };
+  }, [autoQueueEnabled, sensorState, errorMessage, connectionState, selectedCoursId, isCourseScheduleConfigured]);
 
   return (
     <div className="flex">
       <Sidebar />
 
-      <main className="ml-64 min-h-screen flex-1 bg-slate-50">
-        <div className="p-8">
-          <div className="mx-auto max-w-4xl">
-            <div className={`mx-auto w-full space-y-6 ${result ? 'max-w-5xl' : 'max-w-md'}`}>
+      <main className="relative ml-64 min-h-screen flex-1 overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.14),transparent_28%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.14),transparent_22%),linear-gradient(180deg,#f8fafc_0%,#eef6ff_38%,#f8fafc_100%)]">
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(148,163,184,0.08)_1px,transparent_1px),linear-gradient(to_bottom,rgba(148,163,184,0.08)_1px,transparent_1px)] bg-[size:28px_28px] opacity-25" />
+        <div className="pointer-events-none absolute -left-24 top-24 h-72 w-72 rounded-full bg-emerald-200/40 blur-3xl" />
+        <div className="pointer-events-none absolute right-0 top-0 h-80 w-80 rounded-full bg-sky-200/35 blur-3xl" />
 
-            {/* Date du jour */}
-            <p className="text-center text-xs text-slate-400 capitalize">{todayLabel}</p>
-
-            {/* Bannière cours du professeur */}
-            {assignedCourseIds.length === 0 && (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-center">
-                <p className="text-sm font-medium text-amber-800">Aucun cours assigné</p>
-                <p className="mt-0.5 text-xs text-amber-600">Contactez un administrateur pour vous assigner un cours.</p>
+        <div className="relative p-6 md:p-8">
+          <div className="mx-auto max-w-3xl">
+            {assignedCourseIds.length === 0 ? (
+              <div className="rounded-3xl border border-amber-200 bg-amber-50/90 px-5 py-4 text-center shadow-sm">
+                <p className="text-sm font-semibold text-amber-800">Aucun cours assigné à votre compte</p>
+                <p className="mt-1 text-sm text-amber-700">Contactez un administrateur pour recevoir au moins un cours avant d’utiliser le pointage biométrique.</p>
               </div>
-            )}
-
-            {assignedCourseIds.length > 0 && (
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
-                <div className="grid gap-3 md:grid-cols-[1.2fr_1fr] md:items-end">
-                  <div className="space-y-1.5">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Cours de pointage</p>
-                    <Select value={selectedCoursId ? String(selectedCoursId) : 'none'} onValueChange={(value) => setSelectedCoursId(value === 'none' ? null : Number(value))}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Sélectionner un cours" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Sélectionner un cours</SelectItem>
-                        {assignedCourses.map((course) => (
-                          <SelectItem key={course.id} value={String(course.id)}>{course.nom}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                    <p className="font-medium text-slate-700">Horaire du cours</p>
-                    <p className="mt-1">{selectedCourse?.heureDebut || '--:--'} à {selectedCourse?.heureFin || '--:--'}</p>
-                  </div>
+            ) : (
+              <section className="p-2 md:p-4">
+                <div className="mb-6 w-full max-w-sm">
+                  <Select value={selectedCoursId ? String(selectedCoursId) : 'none'} onValueChange={(value) => setSelectedCoursId(value === 'none' ? null : Number(value))}>
+                    <SelectTrigger className="h-12 rounded-2xl border-slate-200 bg-white">
+                      <SelectValue placeholder="Sélectionner un cours" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sélectionner un cours</SelectItem>
+                      {assignedCourses.map((course) => (
+                        <SelectItem key={course.id} value={String(course.id)}>{course.nom}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              </div>
-            )}
 
-            {/* Bannière état capteur */}
-            {connectionState !== 'connected' && (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-center">
-                <p className="text-sm font-medium text-amber-800">Capteur non connecté</p>
-                <p className="mt-0.5 text-xs text-amber-600">
-                  Connectez le capteur depuis le menu <strong>Étudiants</strong> pour activer le scan.
-                </p>
-              </div>
-            )}
-            {connectionState === 'connected' && (
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                <p className="text-xs font-medium text-emerald-700">Capteur connecté via MQTT · Prêt à scanner</p>
-              </div>
-            )}
-
-            {/* ── Widget scan empreinte ── */}
-            <div className="flex flex-col items-center gap-4">
-              <button
-                type="button"
-                onClick={handleScan}
-                disabled={sensorState === 'loading' || connectionState !== 'connected' || !selectedCoursId}
-                className={`group relative flex h-64 w-64 items-center justify-center rounded-full border-8 ${
-                  isListening
-                    ? 'animate-pulse border-emerald-400 bg-gradient-to-br from-emerald-100 to-cyan-100'
-                    : 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-cyan-50'
-                } shadow-inner transition-all duration-300 hover:scale-[1.02] hover:border-emerald-300 disabled:cursor-not-allowed`}
-              >
-                <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_center,rgba(16,185,129,0.14),transparent_60%)]" />
-                {sensorState === 'loading' ? (
-                  <Loader2 className="relative h-24 w-24 animate-spin text-emerald-600" />
-                ) : sensorState === 'success' ? (
-                  <CheckCircle2 className="relative h-24 w-24 text-emerald-600" />
-                ) : sensorState === 'error' ? (
-                  <AlertTriangle className="relative h-24 w-24 text-rose-600" />
-                ) : (
-                  <Fingerprint className={`relative h-24 w-24 ${
-                    connectionState !== 'connected' || !selectedCoursId ? 'text-slate-300' :
-                    isListening ? 'animate-pulse text-emerald-500' : 'text-emerald-700'
-                  }`} />
-                )}
-              </button>
-
-              <div className="text-center">
-                {sensorState === 'idle' && !isListening && connectionState !== 'connected' && (
-                  <p className="text-base text-slate-400">Connectez le capteur pour scanner</p>
-                )}
-                {sensorState === 'idle' && !isListening && connectionState === 'connected' && selectedCoursId && (
-                  <p className="text-base text-slate-700">En attente du doigt sur le capteur</p>
-                )}
-                {sensorState === 'idle' && isListening && (
-                  <p className="text-base font-medium text-emerald-700 animate-pulse">Posez votre doigt sur le capteur...</p>
-                )}
-                {sensorState === 'loading' && <p className="text-base font-medium text-emerald-700">Scannage en cours...</p>}
-                {sensorState === 'error' && <p className="text-base font-medium text-rose-700">{errorMessage || 'Empreinte non reconnue.'}</p>}
-                {sensorState === 'success' && <p className="text-base font-medium text-emerald-700">Empreinte reconnue avec succès</p>}
-              </div>
-
-              <Button
-                onClick={handleScan}
-                disabled={sensorState === 'loading' || connectionState !== 'connected' || !selectedCoursId}
-                className="rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40"
-              >
-                <ScanSearch className="mr-2 h-4 w-4" />
-                {!selectedCoursId ? 'Sélectionnez un cours' : connectionState !== 'connected' ? 'Capteur non connecté' : sensorState === 'loading' ? 'Scan en cours...' : 'Scanner maintenant'}
-              </Button>
-
-              {connectionState === 'connected' && selectedCoursId && (
-                <button
-                  type="button"
-                  onClick={() => setAutoQueueEnabled((current) => !current)}
-                  className="text-xs font-medium text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline"
-                >
-                  {autoQueueEnabled ? 'Mode file actif (auto-scan après chaque résultat)' : 'Activer le mode file automatique'}
-                </button>
-              )}
-            </div>
-
-            {/* Carte résultat */}
-            {result && (
-              <div className={`rounded-3xl border shadow-xl overflow-hidden ${
-                result.attendanceType === 'exit' ? 'border-blue-200' : 'border-emerald-200'
-              }`}>
-                <div className={`h-2 w-full ${
-                  result.attendanceType === 'exit'
-                    ? 'bg-gradient-to-r from-blue-500 to-indigo-500'
-                    : 'bg-gradient-to-r from-emerald-400 to-teal-400'
-                }`} />
-                <div className={`space-y-6 px-8 py-8 ${
-                  result.attendanceType === 'exit'
-                    ? 'bg-gradient-to-br from-blue-50 to-indigo-50'
-                    : 'bg-gradient-to-br from-emerald-50 to-cyan-50'
-                }`}>
-                  <div className="flex flex-col gap-5 rounded-[28px] bg-white/80 p-6 shadow-lg backdrop-blur-sm lg:flex-row lg:items-center">
-                    <div className={`flex h-20 w-20 shrink-0 items-center justify-center rounded-3xl ${
-                      result.attendanceType === 'exit'
-                        ? 'bg-blue-100 text-blue-700'
-                        : 'bg-emerald-100 text-emerald-700'
-                    }`}>
-                      <Fingerprint className="h-10 w-10" />
+                <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr] lg:items-start">
+                  <div className="flex flex-col items-start gap-6 text-left">
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.26em] text-slate-500">Station biométrique</p>
+                      <p className="text-xs text-slate-400 capitalize">{todayLabel}</p>
                     </div>
 
-                    <img
-                      src={result.photoUrl}
-                      alt={`Photo de ${result.studentName}`}
-                      className={`h-32 w-32 shrink-0 rounded-3xl border-4 object-cover shadow-lg ${
-                        result.attendanceType === 'exit' ? 'border-blue-200' : 'border-emerald-200'
-                      }`}
-                    />
-
-                    <div className="min-w-0 flex-1 space-y-3">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <p className={`text-3xl font-extrabold tracking-tight ${
-                          result.attendanceType === 'exit' ? 'text-blue-800' : 'text-emerald-800'
-                        }`}>
-                          {result.attendanceType === 'exit' ? 'Au revoir' : 'Bienvenue'}
-                        </p>
-                        <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
-                          result.attendanceType === 'exit'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'bg-emerald-100 text-emerald-700'
-                        }`}>
-                          Pointé à {result.scannedAtLabel}
-                        </span>
-                      </div>
-
-                      <p className="truncate text-3xl font-semibold text-slate-800">{result.studentName}</p>
-                      <div className="flex flex-wrap gap-x-4 gap-y-2 text-base text-slate-600">
-                        <p>Matricule: {result.matricule}</p>
-                        <p>Département: {result.department}</p>
-                      </div>
+                    <div className="flex h-72 w-72 items-center justify-center rounded-full border-[10px] border-slate-200 bg-gradient-to-br from-white via-emerald-50 to-cyan-100 shadow-[0_24px_80px_-36px_rgba(16,185,129,0.35)]">
+                      {sensorState === 'loading' ? (
+                        <Loader2 className="h-28 w-28 animate-spin text-emerald-600" />
+                      ) : sensorState === 'success' ? (
+                        <CheckCircle2 className="h-28 w-28 text-emerald-600" />
+                      ) : sensorState === 'error' ? (
+                        <AlertTriangle className="h-28 w-28 text-rose-600" />
+                      ) : (
+                        <Fingerprint className={`h-28 w-28 ${
+                          !selectedCoursId || connectionState !== 'connected'
+                            ? 'text-slate-300'
+                            : isListening
+                            ? 'animate-pulse text-emerald-500'
+                            : 'text-emerald-700'
+                        }`} />
+                      )}
                     </div>
-                  </div>
 
-                  <div className="flex flex-col items-center gap-2 text-center">
-                    <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
-                      result.attendanceType === 'exit'
-                        ? 'bg-blue-100 text-blue-700'
-                        : 'bg-emerald-100 text-emerald-700'
-                    }`}>
-                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                      {result.attendanceType === 'exit' ? 'Sortie enregistrée' : 'Entrée enregistrée'}
-                    </span>
+                    <div className="space-y-2 max-w-sm">
+                      {sensorState === 'idle' && !isListening && connectionState !== 'connected' && (
+                        <p className="text-base text-slate-500">Connectez le capteur MQTT pour démarrer le pointage.</p>
+                      )}
+                      {sensorState === 'idle' && !isListening && connectionState === 'connected' && selectedCoursId && !isCourseScheduleConfigured && (
+                        <p className="text-base font-medium text-amber-700">Configurez d’abord l’horaire du cours depuis Vue d’ensemble.</p>
+                      )}
+                      {sensorState === 'idle' && !isListening && canScan && (
+                        <p className="text-base font-medium text-emerald-700">Posez votre doigt sur le capteur...</p>
+                      )}
+                      {sensorState === 'idle' && isListening && (
+                        <p className="text-base font-medium text-emerald-700 animate-pulse">Posez votre doigt sur le capteur...</p>
+                      )}
+                      {sensorState === 'loading' && <p className="text-base font-medium text-emerald-700">Scannage en cours...</p>}
+                      {sensorState === 'error' && <p className="text-base font-medium text-rose-700">{errorMessage || 'Empreinte non reconnue.'}</p>}
+                      {sensorState === 'success' && <p className="text-base font-medium text-emerald-700">Empreinte reconnue avec succès</p>}
+                    </div>
 
-                    <p className="text-sm text-slate-500">
-                      Profil affiché pendant 2 minutes ou jusqu’au prochain pointage.
-                    </p>
+                    <Button
+                      onClick={handleScan}
+                      disabled={sensorState === 'loading' || !canScan}
+                      className="h-12 rounded-2xl bg-emerald-600 px-6 text-white hover:bg-emerald-700 disabled:opacity-40"
+                    >
+                      <ScanSearch className="mr-2 h-4 w-4" />
+                      {connectionState !== 'connected'
+                        ? 'Capteur non connecté'
+                        : sensorState === 'loading'
+                        ? 'Scan en cours...'
+                        : 'Scanner la présence'}
+                    </Button>
 
-                    {autoQueueEnabled && (
-                      <p className="text-xs text-slate-400">Le capteur se réarme automatiquement pour la personne suivante.</p>
+                    {connectionState === 'connected' && selectedCoursId && isCourseScheduleConfigured && (
+                      <button
+                        type="button"
+                        onClick={() => setAutoQueueEnabled((current) => !current)}
+                        className="text-xs font-medium text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline"
+                      >
+                        {autoQueueEnabled ? 'Mode file actif (auto-scan après chaque résultat)' : 'Activer le mode file automatique'}
+                      </button>
                     )}
                   </div>
-                </div>
-              </div>
-            )}
 
-            {sensorState === 'error' && autoQueueEnabled && (
-              <div className="rounded-2xl border border-rose-200 bg-rose-50/80 p-4 text-center">
-                <p className="text-xs font-medium text-rose-700">Nouvelle tentative automatique dans 3 secondes...</p>
-              </div>
-            )}
+                  {result ? (
+                    <div className={`w-full overflow-hidden rounded-[30px] border shadow-[0_28px_80px_-42px_rgba(15,23,42,0.4)] ${
+                      result.attendanceType === 'exit' ? 'border-blue-200' : 'border-emerald-200'
+                    }`}>
+                      <div className={`h-2 w-full ${
+                        result.attendanceType === 'exit'
+                          ? 'bg-gradient-to-r from-blue-500 to-indigo-500'
+                          : 'bg-gradient-to-r from-emerald-400 to-teal-400'
+                      }`} />
+                      <div className={`space-y-6 px-6 py-6 ${
+                        result.attendanceType === 'exit'
+                          ? 'bg-gradient-to-br from-blue-50 to-indigo-50'
+                          : 'bg-gradient-to-br from-emerald-50 to-cyan-50'
+                      }`}>
+                        <div className="flex flex-col gap-5 rounded-[28px] bg-white/80 p-5 shadow-lg backdrop-blur-sm">
+                          <div className="flex items-center gap-3">
+                            <div className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl ${
+                              result.attendanceType === 'exit'
+                                ? 'bg-blue-100 text-blue-700'
+                                : 'bg-emerald-100 text-emerald-700'
+                            }`}>
+                              <Fingerprint className="h-8 w-8" />
+                            </div>
+                            <div>
+                              <p className={`text-2xl font-extrabold tracking-tight ${
+                                result.attendanceType === 'exit' ? 'text-blue-800' : 'text-emerald-800'
+                              }`}>
+                                {result.attendanceType === 'exit' ? 'Au revoir' : 'Bienvenue'}
+                              </p>
+                            </div>
+                          </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="mb-4 flex items-center gap-2">
-                <PencilLine className="h-4 w-4 text-blue-600" />
-                <h2 className="text-sm font-semibold text-slate-900">Saisie manuelle</h2>
-              </div>
-              <div className="space-y-3">
-                <Select value={manualStudentId || 'none'} onValueChange={(value) => setManualStudentId(value === 'none' ? '' : value)}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Sélectionner un étudiant" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Sélectionner un étudiant</SelectItem>
-                    {filteredStudents.map((student) => (
-                      <SelectItem key={student.id} value={student.id}>{formatStudentFullName(student)} - {student.matricule}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <div className="grid grid-cols-2 gap-3">
-                  <Input type="time" value={manualCheckIn} onChange={(event) => setManualCheckIn(event.target.value)} placeholder="Entrée" />
-                  <Input type="time" value={manualCheckOut} onChange={(event) => setManualCheckOut(event.target.value)} placeholder="Sortie" />
+                          <img
+                            src={result.photoUrl}
+                            alt={`Photo de ${result.studentName}`}
+                            className={`h-44 w-full rounded-[28px] border-4 object-cover shadow-lg ${
+                              result.attendanceType === 'exit' ? 'border-blue-200' : 'border-emerald-200'
+                            }`}
+                          />
+
+                          <div className="space-y-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
+                                result.attendanceType === 'exit'
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : 'bg-emerald-100 text-emerald-700'
+                              }`}>
+                                Pointé à {result.scannedAtLabel}
+                              </span>
+                              <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                                {result.attendanceType === 'exit' ? 'Sortie enregistrée' : 'Entrée enregistrée'}
+                              </span>
+                            </div>
+                            <p className="text-2xl font-semibold text-slate-800">{result.studentName}</p>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Matricule</p>
+                                <p className="mt-1 font-semibold text-slate-800">{result.matricule}</p>
+                              </div>
+                              <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Département</p>
+                                <p className="mt-1 font-semibold text-slate-800">{result.department}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col items-center gap-2 text-center">
+                          <p className="text-sm text-slate-500">
+                            Profil affiché pendant 2 minutes ou jusqu’au prochain pointage.
+                          </p>
+                          {autoQueueEnabled && (
+                            <p className="text-xs text-slate-400">Le capteur se réarme automatiquement pour la personne suivante.</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="w-full min-h-[420px]" aria-hidden="true" />
+                  )}
                 </div>
-                <Button onClick={handleManualAttendance} disabled={!manualStudentId || manualSaving || !selectedCoursId} className="w-full bg-blue-600 hover:bg-blue-700">
-                  {manualSaving ? 'Enregistrement...' : 'Saisir une présence manuelle'}
-                </Button>
-              </div>
-            </div>
-            </div>
+
+                {sensorState === 'error' && autoQueueEnabled && (
+                  <div className="mt-6 w-full rounded-2xl border border-rose-200 bg-rose-50/80 p-4 text-center">
+                    <p className="text-xs font-medium text-rose-700">Nouvelle tentative automatique dans 3 secondes...</p>
+                  </div>
+                )}
+              </section>
+            )}
           </div>
         </div>
       </main>

@@ -11,6 +11,7 @@ public record PresenceReponse(
   UUID studentId,
   Long seanceId,
   String studentName,
+  String photoUrl,
   String matricule,
   String department,
   LocalDateTime dateHeure,

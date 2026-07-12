@@ -3,8 +3,8 @@ import { AlertTriangle, CheckCircle2, Fingerprint, Loader2, LogOut, ScanSearch }
 import Sidebar from '@/components/Sidebar';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
-import { loadCourseSettings, loadStudents, saveDepartureException, type CourseSettings, type DepartureReason, type Student } from '@/lib/adminData';
-import { fetchStudents, scanAttendance } from '@/lib/adminApi';
+import { loadCourseSettings, loadStudents, type CourseSettings, type DepartureReason, type Student } from '@/lib/adminData';
+import { fetchStudents, saveDepartureJustification, scanAttendance } from '@/lib/adminApi';
 import { notifyRejectedFingerprintScan, scanFingerprintFromSensor } from '@/lib/biometricSensor';
 import { serialSensor, type ConnectionState } from '@/lib/serialSensor';
 import { hasFingerprintId, parseFingerprintIds } from '@/lib/utils';
@@ -26,6 +26,11 @@ type SensorState = 'idle' | 'loading' | 'success' | 'error';
 const RESULT_DISPLAY_DURATION_MS = 2 * 60 * 1000;
 const AUTO_QUEUE_SUCCESS_COOLDOWN_MS = 1200;
 const AUTO_QUEUE_ERROR_COOLDOWN_MS = 3200;
+const DEPARTURE_REASON_LABELS: Record<DepartureReason, string> = {
+  maladie: 'Maladie',
+  'urgence-familiale': 'Urgence familiale',
+  'urgence-travail': 'Urgence au travail',
+};
 
 function getAvatarUrl(studentName: string): string {
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(studentName)}&background=0f172a&color=ffffff&size=256`;
@@ -104,16 +109,24 @@ export default function AdminSensor() {
   } | null>(null);
   const [selectedReason, setSelectedReason] = useState<DepartureReason | null>(null);
 
-  const handleConfirmDeparture = (reason: DepartureReason | null) => {
+  const handleConfirmDeparture = async (reason: DepartureReason | null) => {
     if (!earlyDeparturePending) return;
-    saveDepartureException({
-      attendanceId: earlyDeparturePending.attendanceId,
-      studentId: earlyDeparturePending.studentId,
-      studentName: earlyDeparturePending.studentName,
-      reason,
-      status: reason ? 'justified' : 'absent',
-      recordedAt: new Date().toISOString(),
-    });
+    const pendingDeparture = earlyDeparturePending;
+    const reasonLabel = reason ? DEPARTURE_REASON_LABELS[reason] : null;
+
+    if (!isApiReady) {
+      return;
+    }
+
+    try {
+      await saveDepartureJustification(pendingDeparture.attendanceId, {
+        motifJustificatif: reasonLabel,
+        estJustifiee: reason !== null,
+      });
+    } catch {
+      return;
+    }
+
     setEarlyDeparturePending(null);
     setSelectedReason(null);
   };
@@ -265,7 +278,7 @@ export default function AdminSensor() {
         studentName,
         matricule: scanResponse.attendance.matricule,
         department: scanResponse.attendance.department,
-        photoUrl: resolveStudentPhoto(matchedStudent, studentName),
+        photoUrl: scanResponse.attendance.photoUrl || resolveStudentPhoto(matchedStudent, studentName),
         scannedAtLabel: formatScanTimestamp(new Date()),
         attendanceType,
         attendanceId: scanResponse.attendance.id,
@@ -280,7 +293,7 @@ export default function AdminSensor() {
           attendanceId: scanResponse.attendance.id,
           studentId: scanResponse.attendance.studentId,
           studentName,
-          photoUrl: resolveStudentPhoto(matchedStudent, studentName),
+          photoUrl: scanResponse.attendance.photoUrl || resolveStudentPhoto(matchedStudent, studentName),
           checkOutTime,
         });
         setSelectedReason(null);

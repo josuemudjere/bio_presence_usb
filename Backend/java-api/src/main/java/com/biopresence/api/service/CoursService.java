@@ -14,10 +14,12 @@ public class CoursService {
 
   private final CoursRepository coursRepository;
   private final AcademicCatalogService academicCatalogService;
+  private final InscriptionService inscriptionService;
 
-  public CoursService(CoursRepository coursRepository, AcademicCatalogService academicCatalogService) {
+  public CoursService(CoursRepository coursRepository, AcademicCatalogService academicCatalogService, InscriptionService inscriptionService) {
     this.coursRepository = coursRepository;
     this.academicCatalogService = academicCatalogService;
+    this.inscriptionService = inscriptionService;
   }
 
   public List<CoursReponse> listAll() {
@@ -134,6 +136,7 @@ public class CoursService {
         cours.nbJours,
         cours.nbHeures,
         cours.seuilEligibilite,
+        inscriptionService.countStudentsForCourse(cours.id),
         cours.heureDebut,
         cours.heureFin
     );

@@ -14,7 +14,6 @@ import { toast } from 'sonner';
 import {
   loadAttendanceRecords,
   loadCourseSettings,
-  loadDepartureExceptions,
   loadExportsCount,
   loadStudents,
   saveAttendanceRecords,
@@ -23,7 +22,6 @@ import {
   saveStudents,
   type AttendanceRecord,
   type CourseSettings,
-  type DepartureException,
   type Promotion,
   type Student,
 } from '@/lib/adminData';
@@ -176,17 +174,9 @@ export default function AdminUsers() {
   const [courseSettings, setCourseSettings] = useState<CourseSettings>(() => loadCourseSettings());
   const [isApiReady, setIsApiReady] = useState(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>(() => serialSensor.state);
-  const [departureExceptions, setDepartureExceptions] = useState<DepartureException[]>(() => loadDepartureExceptions());
   const [cours, setCours] = useState<{ id: number; nom: string; departementId?: number | null; programmeId?: number | null }[]>([]);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const serialSupportError = serialSensor.getSupportError();
-
-  // Je resynchronise les exceptions locales quand la fenêtre reprend le focus.
-  useEffect(() => {
-    const refresh = () => setDepartureExceptions(loadDepartureExceptions());
-    window.addEventListener('focus', refresh);
-    return () => window.removeEventListener('focus', refresh);
-  }, []);
 
   // L'état du capteur et sa progression sont suivis en direct pour guider l'enrôlement et le pointage.
   useEffect(() => serialSensor.onConnectionChange(setConnectionState), []);
@@ -878,9 +868,11 @@ export default function AdminUsers() {
     try {
       if (isApiReady) {
         await resetAttendanceRecordsApi();
+        const apiAttendanceToday = await fetchAttendanceToday();
+        setAttendanceRecords(apiAttendanceToday);
+      } else {
+        setAttendanceRecords([]);
       }
-
-      setAttendanceRecords([]);
       setExportsCount(0);
       toast.success(
         isApiReady
@@ -1371,23 +1363,21 @@ export default function AdminUsers() {
                           </div>
                         </div>
                         {(() => {
-                          const exc = departureExceptions.find((e) => e.attendanceId === record.id);
-                          if (!exc) return null;
-                          const reasonLabels: Record<string, string> = {
-                            maladie: 'Maladie',
-                            'urgence-familiale': 'Urgence familiale',
-                            'urgence-travail': 'Urgence au travail',
-                          };
+                          if (record.motifJustificatif) {
+                            return (
+                              <div className="mt-2 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                                <LogOut className="h-3.5 w-3.5 shrink-0" />
+                                {`Départ anticipé — ${record.motifJustificatif}`}
+                              </div>
+                            );
+                          }
+
+                          if (!record.justificatifId || record.estJustifiee) return null;
+
                           return (
-                            <div className={`mt-2 flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium ${
-                              exc.status === 'justified'
-                                ? 'bg-amber-50 border border-amber-200 text-amber-800'
-                                : 'bg-rose-50 border border-rose-200 text-rose-800'
-                            }`}>
+                            <div className="mt-2 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-800">
                               <LogOut className="h-3.5 w-3.5 shrink-0" />
-                              {exc.status === 'justified'
-                                ? `Départ anticipé — ${reasonLabels[exc.reason ?? ''] ?? exc.reason}`
-                                : 'Départ anticipé non justifié — Marqué absent'}
+                              Départ anticipé non justifié — Marqué absent
                             </div>
                           );
                         })()}

@@ -16,6 +16,7 @@
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/DepartementReponse.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/EtudiantReponse.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/EtudiantRequete.java
+/Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/JustificatifDepartAnticipeRequete.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/LigneEligibiliteReponse.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/ParametresCoursReponse.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/ParametresCoursRequete.java
@@ -64,8 +65,10 @@
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/persistence/AdministrateurRepository.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/persistence/CoursRepository.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/persistence/DepartementRepository.java
+/Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/persistence/EmpreinteDigitaleRepository.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/persistence/EtudiantRepository.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/persistence/InscriptionRepository.java
+/Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/persistence/JustificatifRepository.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/persistence/ParametresCoursRepository.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/persistence/PresenceRepository.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/persistence/ProgrammeRepository.java

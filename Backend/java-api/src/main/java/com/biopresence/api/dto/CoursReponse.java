@@ -18,6 +18,7 @@ public record CoursReponse(
   int nbJours,
   int nbHeures,
   int seuilEligibilite,
+  long enrolledStudentCount,
   String heureDebut,
   String heureFin
 ) {

@@ -1,5 +1,6 @@
 package com.biopresence.api.controller;
 
+import com.biopresence.api.dto.JustificatifDepartAnticipeRequete;
 import com.biopresence.api.dto.PresenceManuelleRequete;
 import com.biopresence.api.dto.PresenceReponse;
 import com.biopresence.api.dto.PresenceScanRequete;
@@ -8,6 +9,7 @@ import com.biopresence.api.service.PresenceService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -37,6 +39,15 @@ public class PresenceController {
   public PresenceReponse manual(@Valid @RequestBody PresenceManuelleRequete request) {
     // Permet une saisie manuelle quand le scan n'est pas possible ou doit être corrigé.
     return attendanceService.createManualAttendance(request);
+  }
+
+  @PatchMapping("/{attendanceId}/departure-justification")
+  public PresenceReponse saveDepartureJustification(
+    @PathVariable String attendanceId,
+    @RequestBody JustificatifDepartAnticipeRequete request
+  ) {
+    // Persiste le motif de départ anticipé dans la table justificatifs et le rattache à la présence.
+    return attendanceService.saveDepartureJustification(attendanceId, request);
   }
 
   @GetMapping("/today")

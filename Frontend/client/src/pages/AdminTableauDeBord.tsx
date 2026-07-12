@@ -22,6 +22,7 @@ import {
   type AttendanceRecord,
   type Student,
 } from '@/lib/adminData';
+import { fetchAttendanceToday, fetchStudents } from '@/lib/adminApi';
 import { serialSensor, type ConnectionState } from '@/lib/serialSensor';
 
 /**
@@ -58,16 +59,66 @@ export default function AdminDashboard() {
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => loadAttendanceRecords());
   const [exportsCount, setExportsCount] = useState<number>(() => loadExportsCount());
   const [connectionState, setConnectionState] = useState<ConnectionState>(() => serialSensor.state);
+  const [isApiReady, setIsApiReady] = useState(false);
   const serialSupportError = serialSensor.getSupportError();
 
   useEffect(() => serialSensor.onConnectionChange(setConnectionState), []);
 
   useEffect(() => {
+    let mounted = true;
+
+    const hydrateFromApi = async () => {
+      try {
+        const [apiStudents, apiAttendanceToday] = await Promise.all([
+          fetchStudents(),
+          fetchAttendanceToday(),
+        ]);
+
+        if (!mounted) {
+          return;
+        }
+
+        setStudents(apiStudents);
+        setAttendanceRecords(apiAttendanceToday);
+        setIsApiReady(true);
+      } catch {
+        if (!mounted) {
+          return;
+        }
+
+        setIsApiReady(false);
+      }
+    };
+
+    hydrateFromApi();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     // Je rafraîchis les métriques quand la page reprend le focus ou qu'un autre onglet modifie le stockage.
-    const refreshMetrics = () => {
-      setStudents(loadStudents());
-      setAttendanceRecords(loadAttendanceRecords());
+    const refreshMetrics = async () => {
       setExportsCount(loadExportsCount());
+
+      if (!isApiReady) {
+        setStudents(loadStudents());
+        setAttendanceRecords(loadAttendanceRecords());
+        return;
+      }
+
+      try {
+        const [apiStudents, apiAttendanceToday] = await Promise.all([
+          fetchStudents(),
+          fetchAttendanceToday(),
+        ]);
+        setStudents(apiStudents);
+        setAttendanceRecords(apiAttendanceToday);
+      } catch {
+        setStudents(loadStudents());
+        setAttendanceRecords(loadAttendanceRecords());
+      }
     };
 
     window.addEventListener('focus', refreshMetrics);
@@ -77,7 +128,7 @@ export default function AdminDashboard() {
       window.removeEventListener('focus', refreshMetrics);
       window.removeEventListener('storage', refreshMetrics);
     };
-  }, []);
+  }, [isApiReady]);
 
   // Ces bornes temporelles servent à agréger les statistiques quotidiennes et hebdomadaires.
   const today = useMemo(() => new Intl.DateTimeFormat('sv-SE').format(new Date()), []);

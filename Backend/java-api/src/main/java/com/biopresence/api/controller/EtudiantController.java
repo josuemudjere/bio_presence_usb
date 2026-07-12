@@ -32,6 +32,12 @@ public class EtudiantController {
     return studentService.listAll();
   }
 
+  @GetMapping("/course/{coursId}")
+  public List<EtudiantReponse> listForCourse(@PathVariable Long coursId) {
+    // Retourne uniquement les étudiants réellement inscrits au cours via la table inscriptions.
+    return studentService.listForCourse(coursId);
+  }
+
   @GetMapping("/{id}")
   public EtudiantReponse getById(@PathVariable UUID id) {
     // Charge un étudiant précis pour consultation ou préremplissage du formulaire.

@@ -1,17 +1,22 @@
 package com.biopresence.api.service;
 
+import com.biopresence.api.dto.JustificatifDepartAnticipeRequete;
 import com.biopresence.api.dto.PresenceReponse;
 import com.biopresence.api.dto.PresenceManuelleRequete;
 import com.biopresence.api.dto.PresenceScanRequete;
 import com.biopresence.api.dto.LigneEligibiliteReponse;
 import com.biopresence.api.dto.ScanReponse;
+import com.biopresence.api.entity.Justificatif;
 import com.biopresence.api.entity.ModeSaisie;
 import com.biopresence.api.entity.Presence;
 import com.biopresence.api.entity.StatutPresence;
 import com.biopresence.api.entity.ParametresCours;
 import com.biopresence.api.entity.Etudiant;
 import com.biopresence.api.exception.ExceptionIntrouvable;
+import com.biopresence.api.persistence.JustificatifRepository;
 import com.biopresence.api.persistence.PresenceRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,18 +34,23 @@ import java.util.stream.Stream;
 @Service
 @Transactional
 public class PresenceService {
+  private static final Logger logger = LoggerFactory.getLogger(PresenceService.class);
+
   private final PresenceRepository attendanceRecordRepository;
+  private final JustificatifRepository justificatifRepository;
   private final EtudiantService studentService;
   private final ParametresCoursService courseSettingsService;
   private final InscriptionService inscriptionService;
 
   public PresenceService(
     PresenceRepository attendanceRecordRepository,
+    JustificatifRepository justificatifRepository,
     EtudiantService studentService,
     ParametresCoursService courseSettingsService,
     InscriptionService inscriptionService
   ) {
     this.attendanceRecordRepository = attendanceRecordRepository;
+    this.justificatifRepository = justificatifRepository;
     this.studentService = studentService;
     this.courseSettingsService = courseSettingsService;
     this.inscriptionService = inscriptionService;
@@ -53,8 +63,20 @@ public class PresenceService {
     }
 
     String fingerprintTemplateId = normalizeFingerprint(request.fingerprintTemplateId());
+    logger.info("Teacher attendance scan received: fingerprintTemplateId='{}', coursId={}", fingerprintTemplateId, request.coursId());
+
     Etudiant student = studentService.findByFingerprintTemplateId(fingerprintTemplateId)
       .orElseThrow(() -> new ExceptionIntrouvable("Aucun etudiant ne correspond a cet identifiant d'empreinte."));
+
+    logger.info(
+      "Teacher attendance scan matched student: studentId={}, matricule={}, coursId={}, legacyLinked={}, courseIds={}",
+      student.id,
+      student.matricule,
+      request.coursId(),
+      studentService.isLegacyLinkedToCourse(student, request.coursId()),
+      inscriptionService.getCourseIdsForStudent(student.id)
+    );
+
     validateCourseAccess(student, request.coursId());
 
     LocalDate today = LocalDate.now();
@@ -141,6 +163,28 @@ public class PresenceService {
       .toList();
   }
 
+  public PresenceReponse saveDepartureJustification(String attendanceId, JustificatifDepartAnticipeRequete request) {
+    UUID attendanceUuid = UUID.fromString(attendanceId);
+    Presence record = attendanceRecordRepository.findById(Objects.requireNonNull(attendanceUuid, "attendanceUuid"))
+      .orElseThrow(() -> new ExceptionIntrouvable("Pointage introuvable."));
+
+    String motif = normalizeOptionalText(request.motifJustificatif());
+    Justificatif justificatif = record.justificatif != null ? record.justificatif : new Justificatif();
+    justificatif.titre = request.estJustifiee() ? "Départ anticipé" : "Départ anticipé non justifié";
+    justificatif.description = motif;
+    justificatif.fichierUrl = null;
+    justificatif.dateSoumission = LocalDateTime.now();
+    justificatif.valide = request.estJustifiee();
+    Justificatif savedJustificatif = justificatifRepository.save(justificatif);
+
+    record.justificatif = savedJustificatif;
+    record.motifJustificatif = motif;
+    record.estJustifiee = request.estJustifiee();
+
+    attendanceRecordRepository.save(record);
+    return toResponse(record);
+  }
+
   public void resetAllAttendances() {
     // Utilisé surtout pour repartir d'un état vierge en démonstration ou test fonctionnel.
     attendanceRecordRepository.deleteAllInBatch();
@@ -180,8 +224,11 @@ public class PresenceService {
   public PresenceReponse toResponse(Presence record) {
     // Je reconstruis le nom depuis la fiche étudiante si elle existe encore pour garder une sortie cohérente.
     String resolvedStudentName = record.studentName;
+    String resolvedPhotoUrl = null;
     try {
-      resolvedStudentName = formatStudentName(studentService.findEntity(record.studentId));
+      Etudiant student = studentService.findEntity(record.studentId);
+      resolvedStudentName = formatStudentName(student);
+      resolvedPhotoUrl = student.photoUrl;
     } catch (ExceptionIntrouvable ignored) {
     }
 
@@ -190,6 +237,7 @@ public class PresenceService {
       record.studentId,
       record.seance == null ? null : record.seance.idSeance,
       resolvedStudentName,
+      resolvedPhotoUrl,
       record.matricule,
       record.department,
       record.dateHeure,
@@ -224,13 +272,22 @@ public class PresenceService {
       return;
     }
 
-    if (!inscriptionService.isStudentEnrolledInCourse(student.id, coursId)) {
+    if (!inscriptionService.isStudentEnrolledInCourse(student.id, coursId) && !studentService.isLegacyLinkedToCourse(student, coursId)) {
       throw new IllegalStateException("Cet étudiant n'est pas enrôlé dans ce cours.");
     }
   }
 
   private Set<UUID> getStudentIdsForCourse(Long coursId) {
     return inscriptionService.getStudentIdsForCourse(coursId);
+  }
+
+  private String normalizeOptionalText(String value) {
+    if (value == null) {
+      return null;
+    }
+
+    String normalized = value.trim();
+    return normalized.isEmpty() ? null : normalized;
   }
 
   private String formatStudentName(Etudiant student) {

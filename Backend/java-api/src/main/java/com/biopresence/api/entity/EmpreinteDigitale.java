@@ -23,6 +23,9 @@ public class EmpreinteDigitale {
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   public Long idEmpreinte;
 
+  @Column(nullable = false, unique = true)
+  public String templateId;
+
   @Lob
   @Column(nullable = false)
   public byte[] template;
