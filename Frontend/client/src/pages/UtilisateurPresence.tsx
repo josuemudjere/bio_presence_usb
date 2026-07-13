@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { loadCourseSettings, type Cours, type CourseSettings, type DepartureReason, type Student } from '@/lib/adminData';
 import { fetchCours, fetchStudentsForCours, saveDepartureJustification, scanAttendanceForCours } from '@/lib/adminApi';
-import { notifyRejectedFingerprintScan, scanFingerprintFromSensor } from '@/lib/biometricSensor';
+import { getBiometricErrorMessage, notifyRejectedFingerprintScan, scanFingerprintFromSensor } from '@/lib/biometricSensor';
 import { serialSensor, type ConnectionState } from '@/lib/serialSensor';
 import { hasFingerprintId } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -75,14 +75,7 @@ function resolveStudentPhoto(student?: Student, fallbackName?: string): string {
 }
 
 function normalizeErrorMessage(input: unknown): string {
-  if (input instanceof Error) {
-    const message = input.message.trim();
-    if (message.length > 0) {
-      return message;
-    }
-  }
-
-  return 'Empreinte non reconnue.';
+  return getBiometricErrorMessage(input);
 }
 
 function formatScanTimestamp(date: Date): string {
@@ -450,7 +443,7 @@ export default function UtilisateurPresence() {
 
                     <div className="space-y-2 max-w-sm">
                       {sensorState === 'idle' && !isListening && connectionState !== 'connected' && (
-                        <p className="text-base text-slate-500">Connectez le capteur MQTT pour démarrer le pointage.</p>
+                        <p className="text-base text-slate-500">Connectez le capteur biométrique pour démarrer le pointage.</p>
                       )}
                       {sensorState === 'idle' && !isListening && connectionState === 'connected' && selectedCoursId && !isCourseScheduleConfigured && (
                         <p className="text-base font-medium text-amber-700">Configurez d’abord l’horaire du cours depuis Vue d’ensemble.</p>

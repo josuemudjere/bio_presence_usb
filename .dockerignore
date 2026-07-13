@@ -1,0 +1,10 @@
+node_modules
+dist
+.git
+.gitignore
+.vscode
+Backend/java-api/target
+platformio-projects-main
+*.log
+npm-debug.log*
+pnpm-debug.log*

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { loadCourseSettings, loadStudents, type CourseSettings, type DepartureReason, type Student } from '@/lib/adminData';
 import { fetchStudents, saveDepartureJustification, scanAttendance } from '@/lib/adminApi';
-import { notifyRejectedFingerprintScan, scanFingerprintFromSensor } from '@/lib/biometricSensor';
+import { getBiometricErrorMessage, notifyRejectedFingerprintScan, scanFingerprintFromSensor } from '@/lib/biometricSensor';
 import { serialSensor, type ConnectionState } from '@/lib/serialSensor';
 import { hasFingerprintId, parseFingerprintIds } from '@/lib/utils';
 
@@ -74,7 +74,7 @@ function resolveStudentPhoto(student?: Student, fallbackName?: string): string {
 }
 
 function normalizeErrorMessage(input: unknown): string {
-  return 'Empreinte non reconnue.';
+  return getBiometricErrorMessage(input);
 }
 
 function formatScanTimestamp(date: Date): string {
@@ -405,7 +405,7 @@ export default function AdminSensor() {
               {connectionState === 'connected' && (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 flex items-center gap-2">
                   <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                  <p className="text-xs font-medium text-emerald-700">Capteur connecté via MQTT · Prêt à scanner</p>
+                  <p className="text-xs font-medium text-emerald-700">Capteur connecté · Prêt à scanner</p>
                 </div>
               )}
 

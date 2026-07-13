@@ -37,7 +37,7 @@ import {
   scanAttendance,
   updateStudent as updateStudentApi,
 } from '@/lib/adminApi';
-import { notifyRejectedFingerprintScan, scanFingerprintFromSensor } from '@/lib/biometricSensor';
+import { getBiometricErrorMessage, notifyRejectedFingerprintScan, scanFingerprintFromSensor } from '@/lib/biometricSensor';
 import { serialSensor, type ConnectionState, type SensorProgressEvent } from '@/lib/serialSensor';
 import { appendFingerprintId, createUuid, hasFingerprintId, parseFingerprintIds } from '@/lib/utils';
 
@@ -106,6 +106,11 @@ export default function AdminUsers() {
     event: SensorProgressEvent,
     mode: ScanDialogMode
   ): ScanProgressState => {
+    const fallbackErrorMessage =
+      mode === 'enrollment'
+        ? 'L\'enrôlement de l\'empreinte a été interrompu.'
+        : 'La lecture de l\'empreinte a été interrompue.';
+
     // Je traduis ici les événements bas niveau du capteur en messages d'interface compréhensibles.
     switch (event.event) {
       case 'ACK':
@@ -141,20 +146,20 @@ export default function AdminUsers() {
           sensorReady: true,
           fingerPlaced: true,
           confirmed: true,
-          message: event.message || 'Empreinte capturée. Enregistrement dans le système en cours...',
+          message: 'Empreinte capturée. Enregistrement dans le système en cours...',
         };
       case 'NO_MATCH':
         return {
           ...current,
           sensorReady: true,
           fingerPlaced: true,
-          message: event.message || 'Aucune empreinte correspondante n\'a été trouvée.',
+          message: 'Aucune empreinte correspondante n\'a été trouvée.',
         };
       case 'ERROR':
       case 'CANCELLED':
         return {
           ...current,
-          message: event.message || 'Le capteur a interrompu l\'opération.',
+          message: event.message ? getBiometricErrorMessage(event.message) : fallbackErrorMessage,
         };
       default:
         return current;
@@ -471,7 +476,7 @@ export default function AdminUsers() {
 
       const fingerprintAlreadyUsed = students.some((student) => hasFingerprintId(student.fingerprintTemplateId, fingerprintId));
       if (fingerprintAlreadyUsed) {
-        throw new Error('Cet ID d\'empreinte est deja associe a un autre etudiant dans le systeme.');
+        throw new Error('Cette empreinte est déjà associée à un autre étudiant.');
       }
 
       setPendingFingerprintId(fingerprintId);
@@ -483,7 +488,7 @@ export default function AdminUsers() {
       }));
       toast.success('Empreinte capturée. Vous pouvez maintenant compléter les informations étudiant.');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Échec du scan biométrique.');
+      toast.error(getBiometricErrorMessage(error));
     } finally {
       setScanDialogOpen(false);
       setScanDialogStep('idle');
@@ -606,7 +611,7 @@ export default function AdminUsers() {
         (item) => item.id !== studentId && hasFingerprintId(item.fingerprintTemplateId, enrolledFingerprintId)
       );
       if (fingerprintAlreadyUsed) {
-        toast.error('Cet ID d\'empreinte est déjà associé à un autre étudiant.');
+        toast.error('Cette empreinte est déjà associée à un autre étudiant.');
         return;
       }
       newCount = nextFingerprintIds.length;
@@ -659,9 +664,9 @@ export default function AdminUsers() {
         confirmed: true,
         message: `Empreinte enregistrée pour ${student.name}.`,
       }));
-      toast.success(`Doigt ${newCount}/3 enrôlé pour ${student.name} (ID: ${seqFingerprintId}).`);
+      toast.success(`Doigt ${newCount}/3 enrôlé pour ${student.name}.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Échec du scan biométrique.');
+      toast.error(getBiometricErrorMessage(error));
     } finally {
       setScanDialogOpen(false);
       setScanDialogStep('idle');
@@ -1420,7 +1425,7 @@ export default function AdminUsers() {
               <div className={`h-2.5 w-2.5 rounded-full ${scanProgress.sensorReady ? 'bg-emerald-500' : 'bg-slate-300'}`} />
               <div>
                 <p className="text-sm font-medium text-slate-800">Capteur détecté</p>
-                <p className="text-xs text-slate-500">Connexion MQTT validée et capteur prêt.</p>
+                <p className="text-xs text-slate-500">Connexion du capteur validée et appareil prêt.</p>
               </div>
             </div>
             <div className="flex items-center gap-3 rounded-xl border border-slate-200 px-3 py-2">

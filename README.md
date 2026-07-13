@@ -257,7 +257,8 @@ JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home \
 | Fichier | Rôle |
 |---|---|
 | `pom.xml` | Fichier Maven principal. Déclare les dépendances Java (Spring Boot, Spring Data JPA, MariaDB Driver, Lombok) et configure le build. |
-| `src/main/resources/application.yml` | Configuration Spring Boot : URL de la base de données, port du serveur (8080), stratégie JPA (`ddl-auto: update`), paramètres de connexion MariaDB. |
+| `src/main/resources/application.yml` | Configuration Spring Boot commune et activation par défaut du profil `local`. |
+| `src/main/resources/application-local.yml` | Configuration datasource locale MySQL, pilotée par variables d'environnement (`DB_*` ou `SPRING_DATASOURCE_*`). |
 | `BioPresenceApplication.java` | Point d'entrée de l'application Spring Boot. Contient la méthode `main()` qui démarre le serveur embarqué Tomcat. |
 
 ### Architecture en couches
