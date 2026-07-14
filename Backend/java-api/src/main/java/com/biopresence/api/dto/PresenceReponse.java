@@ -9,6 +9,7 @@ import java.util.UUID;
 public record PresenceReponse(
   UUID id,
   UUID studentId,
+  Long coursId,
   Long seanceId,
   String studentName,
   String photoUrl,
@@ -23,6 +24,7 @@ public record PresenceReponse(
   boolean estJustifiee,
   String motifJustificatif,
   String modeSaisie,
+  String fingerprintTemplateId,
   Long justificatifId
 ) {
 }

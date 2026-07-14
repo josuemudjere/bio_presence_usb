@@ -23,6 +23,13 @@ public class ParametresCours {
   @Column(nullable = false)
   public int eligibilityThreshold = 75;
 
+  @Column(name = "cours_id")
+  public Long coursId;
+
+  public String startTime;
+
+  public String endTime;
+
   public ParametresCours() {
   }
 }

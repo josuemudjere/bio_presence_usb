@@ -50,6 +50,7 @@ interface ApiAttendance {
 }
 
 interface ApiCourseSettings {
+  coursId?: number | null;
   courseName: string;
   courseDays: number;
   courseHours: number;
@@ -61,6 +62,11 @@ interface ApiCourseSettings {
 interface ApiScanResponse {
   message: string;
   attendance: ApiAttendance;
+}
+
+interface ApiResyncInscriptionsResponse {
+  message: string;
+  syncedStudents: number;
 }
 
 interface SaveDepartureJustificationInput {
@@ -378,15 +384,18 @@ export async function deleteStudent(id: string): Promise<void> {
 export async function fetchCourseSettings(): Promise<CourseSettings> {
   const settings = await request<ApiCourseSettings>('/course-settings');
   return {
+    coursId: settings.coursId ?? null,
     courseName: settings.courseName,
     courseDays: settings.courseDays,
     courseHours: settings.courseHours,
+    eligibilityThreshold: settings.eligibilityThreshold,
     startTime: settings.startTime ?? '',
     endTime: settings.endTime ?? '',
   };
 }
 
 export async function saveCourseSettingsApi(input: {
+  coursId?: number | null;
   courseName: string;
   courseDays: number;
   courseHours: number;
@@ -403,9 +412,11 @@ export async function saveCourseSettingsApi(input: {
   });
 
   return {
+    coursId: settings.coursId ?? null,
     courseName: settings.courseName,
     courseDays: settings.courseDays,
     courseHours: settings.courseHours,
+    eligibilityThreshold: settings.eligibilityThreshold,
     startTime: settings.startTime ?? '',
     endTime: settings.endTime ?? '',
   };
@@ -552,6 +563,17 @@ export async function updatePromotion(id: number, input: Omit<Promotion, 'id'>):
 
 export async function deletePromotion(id: number): Promise<void> {
   await request<void>(`/promotions/${id}`, { method: 'DELETE' });
+}
+
+export async function resyncStudentInscriptions(): Promise<{ message: string; syncedStudents: number }> {
+  const response = await request<ApiResyncInscriptionsResponse>('/students/resync-inscriptions', {
+    method: 'POST',
+  });
+
+  return {
+    message: response.message,
+    syncedStudents: response.syncedStudents,
+  };
 }
 
 export async function fetchUtilisateurs(): Promise<Utilisateur[]> {

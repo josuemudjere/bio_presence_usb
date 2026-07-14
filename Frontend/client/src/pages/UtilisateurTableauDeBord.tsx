@@ -3,9 +3,10 @@ import { CalendarDays, CheckCircle2, Clock3, Loader2, ScanLine, Usb, Unplug, Use
 import Sidebar from '@/components/Sidebar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/contexts/AuthContext';
-import { fetchAttendanceForCours, fetchAttendanceWeekForCours, fetchCours, fetchStudentsForCours } from '@/lib/adminApi';
+import { fetchAttendanceForCours, fetchAttendanceWeekForCours, fetchCours, fetchStudentsForCours, saveCourseSettingsApi, updateCours } from '@/lib/adminApi';
 import type { AttendanceRecord, Cours, Student } from '@/lib/adminData';
 import { serialSensor, type ConnectionState } from '@/lib/serialSensor';
 import { toast } from 'sonner';
@@ -31,6 +32,8 @@ export default function UtilisateurTableauDeBord() {
   const [enrolledStudents, setEnrolledStudents] = useState<Student[]>([]);
   const [todayRecords, setTodayRecords] = useState<AttendanceRecord[]>([]);
   const [weekRecords, setWeekRecords] = useState<AttendanceRecord[]>([]);
+  const [scheduleForm, setScheduleForm] = useState({ startTime: '', endTime: '' });
+  const [savingSchedule, setSavingSchedule] = useState(false);
   const [loading, setLoading] = useState(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>(() => serialSensor.state);
   const serialSupportError = serialSensor.getSupportError();
@@ -65,6 +68,13 @@ export default function UtilisateurTableauDeBord() {
   };
 
   const selectedCourse = assignedCourses.find((course) => course.id === selectedCoursId) ?? null;
+
+  useEffect(() => {
+    setScheduleForm({
+      startTime: selectedCourse?.heureDebut?.slice(0, 5) ?? '',
+      endTime: selectedCourse?.heureFin?.slice(0, 5) ?? '',
+    });
+  }, [selectedCourse?.id, selectedCourse?.heureDebut, selectedCourse?.heureFin]);
 
   useEffect(() => serialSensor.onConnectionChange(setConnectionState), []);
 
@@ -186,6 +196,53 @@ export default function UtilisateurTableauDeBord() {
     },
   ];
 
+  const canSaveSchedule = selectedCourse !== null && scheduleForm.startTime !== '' && scheduleForm.endTime !== '';
+
+  const handleSaveSchedule = async () => {
+    if (!selectedCourse) {
+      return;
+    }
+
+    if (!scheduleForm.startTime || !scheduleForm.endTime) {
+      toast.error('Renseignez les heures de début et de fin du cours.');
+      return;
+    }
+
+    if (scheduleForm.endTime <= scheduleForm.startTime) {
+      toast.error('L heure de fin doit être postérieure à l heure de début.');
+      return;
+    }
+
+    setSavingSchedule(true);
+    try {
+      const updatedCourse = await updateCours(selectedCourse.id, {
+        ...selectedCourse,
+        heureDebut: scheduleForm.startTime,
+        heureFin: scheduleForm.endTime,
+      });
+
+      setAssignedCourses((current) => current.map((course) => (
+        course.id === updatedCourse.id ? updatedCourse : course
+      )));
+
+      await saveCourseSettingsApi({
+        coursId: updatedCourse.id,
+        courseName: updatedCourse.nom,
+        courseDays: updatedCourse.nbJours,
+        courseHours: updatedCourse.nbHeures,
+        eligibilityThreshold: updatedCourse.seuilEligibilite,
+        startTime: updatedCourse.heureDebut ?? '',
+        endTime: updatedCourse.heureFin ?? '',
+      });
+
+      toast.success('Les horaires du cours actif ont été mis à jour.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible de mettre à jour les horaires du cours.');
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
+
   return (
     <div className="flex">
       <Sidebar />
@@ -292,6 +349,28 @@ export default function UtilisateurTableauDeBord() {
                     <div className="rounded-xl bg-slate-50 p-4">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Inscrits</p>
                       <p className="mt-1 text-sm font-medium text-slate-800">{loading ? '--' : selectedCourse?.enrolledStudentCount ?? 0} étudiant(s)</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Modifier les horaires</p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+                      <Input
+                        type="time"
+                        value={scheduleForm.startTime}
+                        onChange={(event) => setScheduleForm((current) => ({ ...current, startTime: event.target.value }))}
+                        disabled={!selectedCourse || savingSchedule}
+                      />
+                      <Input
+                        type="time"
+                        value={scheduleForm.endTime}
+                        onChange={(event) => setScheduleForm((current) => ({ ...current, endTime: event.target.value }))}
+                        disabled={!selectedCourse || savingSchedule}
+                      />
+                      <Button onClick={handleSaveSchedule} disabled={!canSaveSchedule || savingSchedule}>
+                        {savingSchedule ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+                        Enregistrer
+                      </Button>
                     </div>
                   </div>
 

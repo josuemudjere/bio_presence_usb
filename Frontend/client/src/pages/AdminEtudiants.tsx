@@ -686,11 +686,11 @@ export default function AdminUsers() {
       return;
     }
 
-    const knownFingerprintIds = students
-      .filter((student) => student.fingerprintRegistered && student.fingerprintTemplateId)
-      .flatMap((student) => parseFingerprintIds(student.fingerprintTemplateId));
+    const hasRegisteredFingerprints = students.some(
+      (student) => student.fingerprintRegistered && student.fingerprintTemplateId
+    );
 
-    if (knownFingerprintIds.length === 0) {
+    if (!hasRegisteredFingerprints) {
       toast.error('Aucune empreinte enregistrée pour le pointage.');
       return;
     }
@@ -705,7 +705,6 @@ export default function AdminUsers() {
     try {
       const scannedFingerprintId = await scanFingerprintFromSensor({
         mode: 'attendance',
-        knownFingerprintIds,
       });
       fingerprintId = scannedFingerprintId;
       if (isApiReady) {

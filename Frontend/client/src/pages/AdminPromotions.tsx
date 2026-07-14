@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import type { Cours, Promotion } from '@/lib/adminData';
-import { createPromotion, deletePromotion, fetchCours, fetchPromotions, updatePromotion } from '@/lib/adminApi';
+import { createPromotion, deletePromotion, fetchCours, fetchPromotions, resyncStudentInscriptions, updatePromotion } from '@/lib/adminApi';
 
 const emptyForm = {
   niveau: '',
@@ -29,6 +29,7 @@ export default function AdminPromotions() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [resyncing, setResyncing] = useState(false);
   const [form, setForm] = useState(emptyForm);
 
   useEffect(() => {
@@ -116,6 +117,18 @@ export default function AdminPromotions() {
     }
   };
 
+  const handleResyncInscriptions = async () => {
+    setResyncing(true);
+    try {
+      const result = await resyncStudentInscriptions();
+      toast.success(`${result.message} ${result.syncedStudents} étudiant(s) recalculé(s).`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible de resynchroniser les inscriptions.');
+    } finally {
+      setResyncing(false);
+    }
+  };
+
   return (
     <div className="flex">
       <Sidebar />
@@ -126,9 +139,15 @@ export default function AdminPromotions() {
             <h1 className="text-xl font-bold tracking-tight text-slate-900">Promotions</h1>
             <p className="text-xs text-slate-400 mt-0.5">Configurez les promotions, départements et filières utilisées à l’enrôlement.</p>
           </div>
-          <Button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 gap-2">
-            <Plus className="w-4 h-4" /> Nouvelle promotion
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button variant="outline" onClick={handleResyncInscriptions} disabled={resyncing} className="gap-2">
+              {resyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Resynchroniser les inscriptions
+            </Button>
+            <Button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 gap-2">
+              <Plus className="w-4 h-4" /> Nouvelle promotion
+            </Button>
+          </div>
         </header>
 
         <div className="p-8 max-w-6xl mx-auto">

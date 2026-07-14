@@ -28,6 +28,28 @@ export function createUuid(): string {
   ].join("-");
 }
 
+export function normalizeFingerprintId(value: string | null | undefined): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  const normalized = value.trim().toUpperCase();
+  if (!normalized) {
+    return '';
+  }
+
+  if (/^\d{1,4}$/.test(normalized)) {
+    return String(Number.parseInt(normalized, 10)).padStart(4, '0');
+  }
+
+  if (/^FP-ETU-\d{1,4}$/.test(normalized)) {
+    const suffix = normalized.slice(normalized.lastIndexOf('-') + 1);
+    return String(Number.parseInt(suffix, 10)).padStart(4, '0');
+  }
+
+  return normalized;
+}
+
 export function parseFingerprintIds(value?: string | string[] | null): string[] {
   // Plusieurs empreintes peuvent arriver soit en tableau API, soit en chaîne CSV historique.
   if (!value || (Array.isArray(value) && value.length === 0)) {
@@ -36,14 +58,18 @@ export function parseFingerprintIds(value?: string | string[] | null): string[] 
 
   const rawIds = Array.isArray(value) ? value : value.split(',');
 
-  return rawIds
-    .map((item) => item.trim().toUpperCase())
-    .filter(Boolean);
+  return Array.from(
+    new Set(
+      rawIds
+        .map((item) => normalizeFingerprintId(item))
+        .filter(Boolean)
+    )
+  );
 }
 
 export function hasFingerprintId(value: string | string[] | null | undefined, fingerprintId: string): boolean {
   // Toutes les comparaisons passent en majuscules pour ignorer les variations de casse du capteur.
-  const normalizedFingerprintId = fingerprintId.trim().toUpperCase();
+  const normalizedFingerprintId = normalizeFingerprintId(fingerprintId);
   if (!normalizedFingerprintId) {
     return false;
   }
@@ -53,7 +79,7 @@ export function hasFingerprintId(value: string | string[] | null | undefined, fi
 
 export function appendFingerprintId(value: string | string[] | null | undefined, fingerprintId: string): string {
   // J'empêche l'ajout de doublons tout en conservant le format de stockage existant.
-  const normalizedFingerprintId = fingerprintId.trim().toUpperCase();
+  const normalizedFingerprintId = normalizeFingerprintId(fingerprintId);
   const ids = parseFingerprintIds(value);
 
   if (!ids.includes(normalizedFingerprintId)) {

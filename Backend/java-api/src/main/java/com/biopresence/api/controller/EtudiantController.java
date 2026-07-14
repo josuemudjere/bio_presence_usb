@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -48,6 +49,15 @@ public class EtudiantController {
   public EtudiantReponse create(@Valid @RequestBody EtudiantRequete request) {
     // Crée un étudiant avec ses données d'identité, d'affectation et d'empreinte éventuelle.
     return studentService.create(request);
+  }
+
+  @PostMapping("/resync-inscriptions")
+  public Map<String, Object> resyncInscriptions() {
+    int syncedStudents = studentService.resyncAllInscriptions();
+    return Map.of(
+      "message", "Les inscriptions étudiants ont été resynchronisées.",
+      "syncedStudents", syncedStudents
+    );
   }
 
   @PutMapping("/{id}")

@@ -50,7 +50,7 @@ public class InitialiseurDonnees implements CommandLineRunner {
   }
 
   private void migrateStudentFingerprintStorage() {
-    // Je recopie au démarrage les anciens CSV d'empreintes vers les stockages normalisés liés à l'étudiant.
+    // Je recopie les anciens identifiants CSV dans empreintes_digitales puis je supprime la table legacy.
     for (Etudiant student : studentService.listEntities()) {
       List<String> normalizedIds = parseFingerprintIds(student.fingerprintTemplateId);
 
@@ -70,6 +70,8 @@ public class InitialiseurDonnees implements CommandLineRunner {
       student.fingerprintCount = normalizedIds.size();
       studentService.save(student);
     }
+
+    jdbcTemplate.execute("DROP TABLE IF EXISTS etudiant_fingerprint_template_ids");
   }
 
   private void migrateStudentInscriptions() {

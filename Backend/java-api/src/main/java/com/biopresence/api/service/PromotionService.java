@@ -3,10 +3,13 @@ package com.biopresence.api.service;
 import com.biopresence.api.dto.PromotionReponse;
 import com.biopresence.api.dto.PromotionRequete;
 import com.biopresence.api.entity.Cours;
+import com.biopresence.api.entity.Etudiant;
 import com.biopresence.api.entity.Promotion;
 import com.biopresence.api.exception.ExceptionIntrouvable;
+import com.biopresence.api.persistence.EtudiantRepository;
 import com.biopresence.api.persistence.PromotionRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Arrays;
 import java.util.Comparator;
@@ -18,14 +21,20 @@ import java.util.Objects;
 public class PromotionService {
 
   private final PromotionRepository promotionRepository;
+  private final EtudiantRepository studentRepository;
   private final CoursService coursService;
+  private final InscriptionService inscriptionService;
 
   public PromotionService(
     PromotionRepository promotionRepository,
-    CoursService coursService
+    EtudiantRepository studentRepository,
+    CoursService coursService,
+    InscriptionService inscriptionService
   ) {
     this.promotionRepository = promotionRepository;
+    this.studentRepository = studentRepository;
     this.coursService = coursService;
+    this.inscriptionService = inscriptionService;
   }
 
   public List<PromotionReponse> listAll() {
@@ -44,6 +53,7 @@ public class PromotionService {
       .orElseThrow(() -> new ExceptionIntrouvable("Promotion introuvable."));
   }
 
+  @Transactional
   public PromotionReponse create(PromotionRequete request) {
     Promotion promotion = new Promotion();
     applyFields(promotion, request);
@@ -51,20 +61,57 @@ public class PromotionService {
     return toResponse(promotion);
   }
 
+  @Transactional
   public PromotionReponse update(Long id, PromotionRequete request) {
     Promotion promotion = findEntity(id);
+    List<Long> previousPromotionCourseIds = parseCoursIds(promotion.coursIds);
     applyFields(promotion, request);
     promotionRepository.save(promotion);
+    syncStudentsForPromotion(promotion, previousPromotionCourseIds);
     return toResponse(promotion);
   }
 
+  @Transactional
   public void delete(Long id) {
-    findEntity(id);
-    promotionRepository.deleteById(id);
+    Promotion promotion = findEntity(id);
+    List<Long> promotionCourseIds = parseCoursIds(promotion.coursIds);
+
+    for (Etudiant student : studentRepository.findByPromotionId(id)) {
+      List<Cours> creditCourses = resolveCreditCoursesForStudent(student, promotionCourseIds);
+      student.promotion = null;
+      studentRepository.save(student);
+      inscriptionService.replaceStudentInscriptions(student, List.of(), creditCourses);
+    }
+
+    promotionRepository.delete(promotion);
   }
 
   public List<Cours> resolveCours(Promotion promotion) {
     return parseCoursIds(promotion.coursIds).stream().map(coursService::findEntity).toList();
+  }
+
+  private void syncStudentsForPromotion(Promotion promotion, List<Long> previousPromotionCourseIds) {
+    for (Etudiant student : studentRepository.findByPromotionId(promotion.id)) {
+      List<Cours> promotionCourses = resolveCours(promotion);
+      List<Cours> creditCourses = resolveCreditCoursesForStudent(student, previousPromotionCourseIds);
+      inscriptionService.replaceStudentInscriptions(student, promotionCourses, creditCourses);
+    }
+  }
+
+  private List<Cours> resolveCreditCoursesForStudent(Etudiant student, List<Long> previousPromotionCourseIds) {
+    LinkedHashSet<Long> assignedCourseIds = new LinkedHashSet<>(inscriptionService.getCourseIdsForStudent(student.id));
+
+    if (assignedCourseIds.isEmpty()) {
+      if (student.coursId != null) {
+        assignedCourseIds.add(student.coursId);
+      }
+      assignedCourseIds.addAll(previousPromotionCourseIds);
+    }
+
+    return assignedCourseIds.stream()
+      .filter(courseId -> !previousPromotionCourseIds.contains(courseId))
+      .map(coursService::findEntity)
+      .toList();
   }
 
   private void applyFields(Promotion promotion, PromotionRequete request) {

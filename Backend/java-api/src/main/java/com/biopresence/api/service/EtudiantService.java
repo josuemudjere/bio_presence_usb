@@ -58,6 +58,7 @@ public class EtudiantService {
     return studentRepository.findAll(Sort.by(Sort.Direction.ASC, "name"));
   }
 
+  @Transactional(readOnly = true)
   public List<EtudiantReponse> listForCourse(Long coursId) {
     // La vue enseignant lit d'abord inscriptions, avec repli legacy sur coursId et promotion quand nécessaire.
     Set<UUID> studentIds = inscriptionService.getStudentIdsForCourse(coursId);
@@ -181,6 +182,16 @@ public class EtudiantService {
       .findFirst();
   }
 
+  @Transactional(readOnly = true)
+  public Optional<EmpreinteDigitale> findFingerprintByTemplateId(String fingerprintTemplateId) {
+    String normalized = normalizeFingerprintId(fingerprintTemplateId);
+    if (normalized == null) {
+      return Optional.empty();
+    }
+
+    return fingerprintRepository.findFirstByTemplateIdIgnoreCase(normalized);
+  }
+
   public Etudiant findEntity(UUID id) {
     // Cette recherche centralisée uniformise le message renvoyé quand l'étudiant n'existe pas.
     return studentRepository.findById(Objects.requireNonNull(id)).orElseThrow(() -> new ExceptionIntrouvable("Etudiant introuvable."));
@@ -213,6 +224,36 @@ public class EtudiantService {
     }
 
     inscriptionService.replaceStudentInscriptions(student, promotionCourses, legacyCourses);
+  }
+
+  @Transactional
+  public int resyncAllInscriptions() {
+    List<Etudiant> students = studentRepository.findAll();
+    students.forEach(this::resyncCourseLinks);
+    return students.size();
+  }
+
+  @Transactional
+  public void resyncCourseLinks(Etudiant student) {
+    List<Long> promotionCourseIds = resolvePromotionCourseIdsSafely(student);
+    LinkedHashSet<Long> assignedCourseIds = new LinkedHashSet<>(inscriptionService.getCourseIdsForStudent(student.id));
+
+    if (assignedCourseIds.isEmpty()) {
+      assignedCourseIds.addAll(resolveLegacyAssignedCourseIds(student));
+    }
+
+    List<Cours> baseCourses = new java.util.ArrayList<>(promotionCourseIds.stream().map(coursService::findEntity).toList());
+    if (student.coursId != null && promotionCourseIds.stream().noneMatch(courseId -> courseId.equals(student.coursId))) {
+      baseCourses.add(coursService.findEntity(student.coursId));
+    }
+
+    List<Cours> creditCourses = assignedCourseIds.stream()
+      .filter(courseId -> !promotionCourseIds.contains(courseId))
+      .filter(courseId -> student.coursId == null || !student.coursId.equals(courseId))
+      .map(coursService::findEntity)
+      .toList();
+
+    inscriptionService.replaceStudentInscriptions(student, baseCourses, creditCourses);
   }
 
   private void validateUniqueFields(String matricule, String fingerprintTemplateId, UUID currentId) {
@@ -303,7 +344,18 @@ public class EtudiantService {
   }
 
   private List<String> resolveFingerprintIds(Etudiant student) {
-    // La nouvelle source de vérité est la collection normalisée, avec repli vers le CSV historique.
+    // La nouvelle source de vérité est la table empreintes_digitales, avec repli vers l'état legacy si nécessaire.
+    List<String> fingerprintIdsFromRepository = fingerprintRepository.findByEtudiantIdOrderByDateEnrolementAsc(student.id).stream()
+      .map(fingerprint -> normalizeFingerprintId(fingerprint.templateId))
+      .filter(Objects::nonNull)
+      .collect(Collectors.collectingAndThen(Collectors.toCollection(LinkedHashSet::new), List::copyOf));
+
+    if (!fingerprintIdsFromRepository.isEmpty()) {
+      student.fingerprintTemplateIds.clear();
+      student.fingerprintTemplateIds.addAll(fingerprintIdsFromRepository);
+      return fingerprintIdsFromRepository;
+    }
+
     if (student.fingerprintTemplateIds != null && !student.fingerprintTemplateIds.isEmpty()) {
       return student.fingerprintTemplateIds.stream()
         .filter(value -> value != null && !value.isBlank())
@@ -316,7 +368,7 @@ public class EtudiantService {
   }
 
   private void syncFingerprintStorage(Etudiant student, List<String> fingerprintIds) {
-    // J'aligne la collection normalisée et la colonne historique pour garder une transition sans rupture.
+    // La colonne CSV reste un miroir de compatibilité pendant la transition, sans redevenir la source de vérité.
     student.fingerprintTemplateIds.clear();
     student.fingerprintTemplateIds.addAll(fingerprintIds);
     student.fingerprintTemplateId = fingerprintIds.isEmpty() ? null : String.join(",", fingerprintIds);
@@ -469,10 +521,27 @@ public class EtudiantService {
   private void syncInscriptions(Etudiant student, EtudiantRequete request) {
     // Les inscriptions finales combinent les cours hérités de la promotion et les crédits ajoutés manuellement.
     Promotion promotion = student.promotion;
+    LinkedHashSet<Long> assignedCourseIds = new LinkedHashSet<>();
+    if (request.creditCoursIds() != null) {
+      assignedCourseIds.addAll(request.creditCoursIds());
+    }
+    if (request.coursId() != null) {
+      assignedCourseIds.add(request.coursId());
+    }
+
     List<Cours> promotionCourses = promotion == null ? List.of() : promotionService.resolveCours(promotion);
-    List<Cours> creditCourses = request.creditCoursIds() == null
-      ? List.of()
-      : request.creditCoursIds().stream().map(coursService::findEntity).toList();
-    inscriptionService.replaceStudentInscriptions(student, promotionCourses, creditCourses);
+    List<Long> promotionCourseIds = promotionCourses.stream().map(cours -> cours.id).toList();
+    List<Cours> baseCourses = new java.util.ArrayList<>(promotionCourses);
+    if (request.coursId() != null && promotionCourseIds.stream().noneMatch(courseId -> courseId.equals(request.coursId()))) {
+      baseCourses.add(coursService.findEntity(request.coursId()));
+    }
+
+    List<Cours> creditCourses = assignedCourseIds.stream()
+      .filter(courseId -> !promotionCourseIds.contains(courseId))
+      .filter(courseId -> request.coursId() == null || !request.coursId().equals(courseId))
+      .map(coursService::findEntity)
+      .toList();
+
+    inscriptionService.replaceStudentInscriptions(student, baseCourses, creditCourses);
   }
 }

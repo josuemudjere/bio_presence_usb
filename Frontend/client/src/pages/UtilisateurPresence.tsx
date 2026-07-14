@@ -417,13 +417,13 @@ export default function UtilisateurPresence() {
                 </div>
 
                 <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr] lg:items-start">
-                  <div className="flex flex-col items-start gap-6 text-left">
+                  <div className="flex flex-col items-center gap-6 text-center lg:-ml-8">
                     <div className="space-y-2">
                       <p className="text-xs font-semibold uppercase tracking-[0.26em] text-slate-500">Station biométrique</p>
                       <p className="text-xs text-slate-400 capitalize">{todayLabel}</p>
                     </div>
 
-                    <div className="flex h-72 w-72 items-center justify-center rounded-full border-[10px] border-slate-200 bg-gradient-to-br from-white via-emerald-50 to-cyan-100 shadow-[0_24px_80px_-36px_rgba(16,185,129,0.35)]">
+                    <div className="flex h-72 w-72 items-center justify-center rounded-full border-[10px] border-slate-200 bg-gradient-to-br from-white via-emerald-50 to-cyan-100 shadow-[0_24px_80px_-36px_rgba(16,185,129,0.35)] lg:-ml-10">
                       {sensorState === 'loading' ? (
                         <Loader2 className="h-28 w-28 animate-spin text-emerald-600" />
                       ) : sensorState === 'success' ? (
@@ -441,7 +441,7 @@ export default function UtilisateurPresence() {
                       )}
                     </div>
 
-                    <div className="space-y-2 max-w-sm">
+                    <div className="max-w-sm space-y-2">
                       {sensorState === 'idle' && !isListening && connectionState !== 'connected' && (
                         <p className="text-base text-slate-500">Connectez le capteur biométrique pour démarrer le pointage.</p>
                       )}
@@ -462,7 +462,7 @@ export default function UtilisateurPresence() {
                     <Button
                       onClick={handleScan}
                       disabled={sensorState === 'loading' || !canScan}
-                      className="h-12 rounded-2xl bg-emerald-600 px-6 text-white hover:bg-emerald-700 disabled:opacity-40"
+                      className="h-12 rounded-2xl bg-emerald-600 px-6 text-white hover:bg-emerald-700 disabled:opacity-40 lg:-ml-10"
                     >
                       <ScanSearch className="mr-2 h-4 w-4" />
                       {connectionState !== 'connected'
@@ -476,7 +476,7 @@ export default function UtilisateurPresence() {
                       <button
                         type="button"
                         onClick={() => setAutoQueueEnabled((current) => !current)}
-                        className="text-xs font-medium text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline"
+                        className="text-xs font-medium text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline lg:-ml-10"
                       >
                         {autoQueueEnabled ? 'Mode file actif (auto-scan après chaque résultat)' : 'Activer le mode file automatique'}
                       </button>

@@ -6,6 +6,7 @@ import com.biopresence.api.dto.PresenceManuelleRequete;
 import com.biopresence.api.dto.PresenceScanRequete;
 import com.biopresence.api.dto.LigneEligibiliteReponse;
 import com.biopresence.api.dto.ScanReponse;
+import com.biopresence.api.entity.EmpreinteDigitale;
 import com.biopresence.api.entity.Justificatif;
 import com.biopresence.api.entity.ModeSaisie;
 import com.biopresence.api.entity.Presence;
@@ -65,6 +66,8 @@ public class PresenceService {
     String fingerprintTemplateId = normalizeFingerprint(request.fingerprintTemplateId());
     logger.info("Teacher attendance scan received: fingerprintTemplateId='{}', coursId={}", fingerprintTemplateId, request.coursId());
 
+    EmpreinteDigitale matchedFingerprint = studentService.findFingerprintByTemplateId(fingerprintTemplateId).orElse(null);
+
     Etudiant student = studentService.findByFingerprintTemplateId(fingerprintTemplateId)
       .orElseThrow(() -> new ExceptionIntrouvable("Aucun etudiant ne correspond a cet identifiant d'empreinte."));
 
@@ -90,6 +93,12 @@ public class PresenceService {
       Presence record = openRecord.get();
       record.checkOut = now;
       record.status = StatutPresence.PRESENT;
+      if (record.coursId == null) {
+        record.coursId = request.coursId();
+      }
+      if (record.empreinteDigitale == null) {
+        record.empreinteDigitale = matchedFingerprint;
+      }
       attendanceRecordRepository.save(record);
       student.lastFingerprintScan = LocalDateTime.now().toString();
       studentService.save(student);
@@ -103,8 +112,10 @@ public class PresenceService {
     }
 
     // Si rien n'est ouvert et qu'aucun cycle complet n'existe, on crée l'entrée du jour.
-    Presence record = new Presence(student.id, formatStudentName(student), student.matricule, student.department, today, now);
+    Presence record = new Presence(student.id, request.coursId(), formatStudentName(student), student.matricule, student.department, today, now);
     record.modeSaisie = ModeSaisie.EMPREINTE;
+    record.etudiant = student;
+    record.empreinteDigitale = matchedFingerprint;
     attendanceRecordRepository.save(record);
     student.lastFingerprintScan = LocalDateTime.now().toString();
     studentService.save(student);
@@ -126,8 +137,9 @@ public class PresenceService {
       ? null
       : LocalTime.parse(request.checkOut());
 
-    Presence record = new Presence(student.id, formatStudentName(student), student.matricule, student.department, date, checkIn);
+    Presence record = new Presence(student.id, request.coursId(), formatStudentName(student), student.matricule, student.department, date, checkIn);
     record.modeSaisie = ModeSaisie.MANUELLE;
+    record.etudiant = student;
     if (checkOut != null) {
       if (checkOut.isBefore(checkIn)) {
         throw new IllegalArgumentException("L'heure de sortie doit être postérieure à l'heure d'entrée.");
@@ -150,7 +162,7 @@ public class PresenceService {
   public List<PresenceReponse> listForCourseAndDate(Long coursId, LocalDate date) {
     Set<UUID> studentIds = getStudentIdsForCourse(coursId);
     return attendanceRecordRepository.findByRecordDateOrderByCheckInAsc(date).stream()
-      .filter(record -> studentIds.contains(record.studentId))
+      .filter(record -> Objects.equals(record.coursId, coursId) || (record.coursId == null && studentIds.contains(record.studentId)))
       .map(this::toResponse)
       .toList();
   }
@@ -158,7 +170,7 @@ public class PresenceService {
   public List<PresenceReponse> listForCourseBetween(Long coursId, LocalDate startDate, LocalDate endDate) {
     Set<UUID> studentIds = getStudentIdsForCourse(coursId);
     return attendanceRecordRepository.findByRecordDateBetweenOrderByRecordDateAscCheckInAsc(startDate, endDate).stream()
-      .filter(record -> studentIds.contains(record.studentId))
+      .filter(record -> Objects.equals(record.coursId, coursId) || (record.coursId == null && studentIds.contains(record.studentId)))
       .map(this::toResponse)
       .toList();
   }
@@ -197,14 +209,18 @@ public class PresenceService {
       throw new IllegalStateException("Configurez d'abord le cours avant de generer le rapport d'eligibilite.");
     }
 
+    Long effectiveCoursId = coursId != null ? coursId : settings.coursId;
+    Set<UUID> studentIds = effectiveCoursId == null ? Set.of() : getStudentIdsForCourse(effectiveCoursId);
+
     Map<UUID, Set<LocalDate>> daysByStudent = attendanceRecordRepository.findAll().stream()
+      .filter(record -> effectiveCoursId == null || Objects.equals(record.coursId, effectiveCoursId) || (record.coursId == null && studentIds.contains(record.studentId)))
       .collect(Collectors.groupingBy(
         record -> record.studentId,
         Collectors.mapping(record -> record.recordDate, Collectors.toSet())
       ));
 
     return studentService.listEntities().stream()
-      .filter(student -> coursId == null || inscriptionService.isStudentEnrolledInCourse(student.id, coursId))
+      .filter(student -> effectiveCoursId == null || inscriptionService.isStudentEnrolledInCourse(student.id, effectiveCoursId))
       .map(student -> {
       int attendedDays = daysByStudent.getOrDefault(student.id, Set.of()).size();
       double percentage = Math.min(100.0, (attendedDays * 100.0) / settings.courseDays);
@@ -235,6 +251,7 @@ public class PresenceService {
     return new PresenceReponse(
       record.id,
       record.studentId,
+      record.coursId,
       record.seance == null ? null : record.seance.idSeance,
       resolvedStudentName,
       resolvedPhotoUrl,
@@ -249,6 +266,7 @@ public class PresenceService {
       record.estJustifiee,
       record.motifJustificatif,
       record.modeSaisie.name(),
+      record.empreinteDigitale == null ? null : record.empreinteDigitale.templateId,
       record.justificatif == null ? null : record.justificatif.idJustificatif
     );
   }
@@ -272,9 +290,16 @@ public class PresenceService {
       return;
     }
 
-    if (!inscriptionService.isStudentEnrolledInCourse(student.id, coursId) && !studentService.isLegacyLinkedToCourse(student, coursId)) {
-      throw new IllegalStateException("Cet étudiant n'est pas enrôlé dans ce cours.");
+    if (inscriptionService.isStudentEnrolledInCourse(student.id, coursId)) {
+      return;
     }
+
+    if (studentService.isLegacyLinkedToCourse(student, coursId)) {
+      studentService.backfillLegacyInscriptionsIfMissing(student);
+      return;
+    }
+
+    throw new IllegalStateException("Cet étudiant n'est pas inscrit à ce cours.");
   }
 
   private Set<UUID> getStudentIdsForCourse(Long coursId) {

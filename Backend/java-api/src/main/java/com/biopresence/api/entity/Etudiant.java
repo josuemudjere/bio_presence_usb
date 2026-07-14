@@ -1,8 +1,6 @@
 package com.biopresence.api.entity;
 
 import jakarta.persistence.Column;
-import jakarta.persistence.CollectionTable;
-import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -11,7 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.Transient;
 
 import java.time.LocalDate;
 import java.util.LinkedHashSet;
@@ -69,13 +67,7 @@ public class Etudiant {
   @Column(nullable = false)
   public boolean fingerprintRegistered = false;
 
-  @ElementCollection(fetch = FetchType.EAGER)
-  @CollectionTable(
-    name = "etudiant_fingerprint_template_ids",
-    joinColumns = @JoinColumn(name = "etudiant_id"),
-    uniqueConstraints = @UniqueConstraint(columnNames = { "fingerprint_template_id" })
-  )
-  @Column(name = "fingerprint_template_id", nullable = false)
+  @Transient
   public Set<String> fingerprintTemplateIds = new LinkedHashSet<>();
 
   @Column(unique = true)

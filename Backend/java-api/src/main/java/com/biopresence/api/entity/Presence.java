@@ -26,6 +26,9 @@ public class Presence {
   @Column(nullable = false)
   public UUID studentId;
 
+  @Column
+  public Long coursId;
+
   @Column(nullable = false)
   public String studentName;
 
@@ -68,6 +71,10 @@ public class Presence {
   public Etudiant etudiant;
 
   @ManyToOne(fetch = FetchType.LAZY)
+  @JoinColumn(name = "empreinte_digitale_id")
+  public EmpreinteDigitale empreinteDigitale;
+
+  @ManyToOne(fetch = FetchType.LAZY)
   @JoinColumn(name = "seance_id")
   public Seance seance;
 
@@ -78,9 +85,10 @@ public class Presence {
   public Presence() {
   }
 
-  public Presence(UUID studentId, String studentName, String matricule, String department, LocalDate recordDate, LocalTime checkIn) {
+  public Presence(UUID studentId, Long coursId, String studentName, String matricule, String department, LocalDate recordDate, LocalTime checkIn) {
     this.id = UUID.randomUUID();
     this.studentId = studentId;
+    this.coursId = coursId;
     this.studentName = studentName;
     this.matricule = matricule;
     this.department = department;

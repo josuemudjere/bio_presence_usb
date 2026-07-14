@@ -1,8 +1,8 @@
+import { normalizeFingerprintId } from './utils';
 import { serialSensor } from './serialSensor';
 
 interface ScanFingerprintOptions {
   mode?: 'enrollment' | 'attendance';
-  knownFingerprintIds?: string[];
 }
 
 function normalizeBiometricErrorText(message: string): string {
@@ -66,10 +66,6 @@ function normalizeBiometricErrorText(message: string): string {
   }
 
   return message.trim();
-}
-
-function normalizeFingerprintId(value: string): string {
-  return value.trim().toUpperCase();
 }
 
 export async function scanFingerprintFromSensor(options: ScanFingerprintOptions = {}): Promise<string> {

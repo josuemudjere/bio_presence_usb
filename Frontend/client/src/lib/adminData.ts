@@ -46,9 +46,11 @@ export interface AttendanceRecord {
 }
 
 export interface CourseSettings {
+  coursId?: number | null;
   courseName: string;
   courseDays: number;
   courseHours: number;
+  eligibilityThreshold?: number;
   startTime: string; // HH:mm
   endTime: string;   // HH:mm
 }
@@ -122,9 +124,11 @@ const DEFAULT_STUDENTS: Student[] = [];
 const DEFAULT_ATTENDANCE_RECORDS: AttendanceRecord[] = [];
 const DEFAULT_EXPORTS_COUNT = 0;
 const DEFAULT_COURSE_SETTINGS: CourseSettings = {
+  coursId: null,
   courseName: '',
   courseDays: 0,
   courseHours: 0,
+  eligibilityThreshold: 75,
   startTime: '',
   endTime: '',
 };

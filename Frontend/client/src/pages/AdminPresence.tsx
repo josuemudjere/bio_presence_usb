@@ -7,7 +7,7 @@ import { loadCourseSettings, loadStudents, type CourseSettings, type DepartureRe
 import { fetchStudents, saveDepartureJustification, scanAttendance } from '@/lib/adminApi';
 import { getBiometricErrorMessage, notifyRejectedFingerprintScan, scanFingerprintFromSensor } from '@/lib/biometricSensor';
 import { serialSensor, type ConnectionState } from '@/lib/serialSensor';
-import { hasFingerprintId, parseFingerprintIds } from '@/lib/utils';
+import { hasFingerprintId } from '@/lib/utils';
 
 interface SensorResult {
   studentName: string;
@@ -198,11 +198,11 @@ export default function AdminSensor() {
       return;
     }
 
-    const knownFingerprintIds = students
-      .filter((student) => student.fingerprintRegistered && student.fingerprintTemplateId)
-      .flatMap((student) => parseFingerprintIds(student.fingerprintTemplateId));
+    const hasRegisteredFingerprints = students.some(
+      (student) => student.fingerprintRegistered && student.fingerprintTemplateId
+    );
 
-    if (knownFingerprintIds.length === 0) {
+    if (!hasRegisteredFingerprints) {
       setSensorState('error');
       setErrorMessage('Aucune empreinte enregistrée.');
       setResult(null);
@@ -229,7 +229,6 @@ export default function AdminSensor() {
       // Bloque jusquà ce que le doigt soit détecté sur le capteur
       const scannedFingerprintId = await scanFingerprintFromSensor({
         mode: 'attendance',
-        knownFingerprintIds,
       });
       fingerprintId = scannedFingerprintId;
 

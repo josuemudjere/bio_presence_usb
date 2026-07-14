@@ -33,6 +33,30 @@ interface SensorMqttConfig {
 
 const SENSOR_AVAILABILITY_TIMEOUT_MS = 5_000;
 
+function isMqttDebugEnabled(): boolean {
+  if (import.meta.env.DEV) {
+    return true;
+  }
+
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  try {
+    return window.localStorage.getItem('biopresence:mqtt-debug') === '1';
+  } catch {
+    return false;
+  }
+}
+
+function logMqttDebug(scope: string, payload: Record<string, unknown>): void {
+  if (!isMqttDebugEnabled()) {
+    return;
+  }
+
+  console.info(`[BioPresence MQTT] ${scope}`, payload);
+}
+
 function isOperationalStatus(state: SensorStatusMessage['state'] | undefined): boolean {
   return state === 'ONLINE' || state === 'IDLE' || state === 'BUSY';
 }
@@ -184,6 +208,14 @@ class SerialSensorService {
 
       const client = mqtt.connect(this.config.brokerUrl, options);
       this.client = client;
+      logMqttDebug('connect:start', {
+        brokerUrl: this.config.brokerUrl,
+        expectedSensorId: this.config.expectedSensorId,
+        commandTopic: this.config.commandTopic,
+        eventsTopic: this.config.eventsTopic,
+        statusTopic: this.config.statusTopic,
+        clientId: options.clientId,
+      });
 
       const cleanup = () => {
         client.off('connect', handleConnect);
@@ -302,6 +334,17 @@ class SerialSensorService {
       return;
     }
 
+    logMqttDebug('event:received', {
+      topic,
+      event: event.event,
+      requestId: event.requestId ?? null,
+      pendingRequestId: this.pendingRequestId,
+      availabilityRequestId: this.availabilityRequestId,
+      fingerprintId: event.fingerprintId ?? null,
+      sensorId: event.sensorId ?? null,
+      message: event.message ?? null,
+    });
+
     if (this.availabilityRequestId && event.requestId === this.availabilityRequestId) {
       if (event.event === 'ACK' || event.event === 'READY') {
         if (this.selectActiveSensor(event.sensorId)) {
@@ -313,10 +356,31 @@ class SerialSensorService {
     }
 
     if (!this.isExpectedSensor(event.sensorId)) {
+      logMqttDebug('event:ignored-unexpected-sensor', {
+        event: event.event,
+        requestId: event.requestId ?? null,
+        sensorId: event.sensorId ?? null,
+        expectedSensorId: this.config.expectedSensorId,
+        activeSensorId: this.activeSensorId,
+      });
       return;
     }
 
     if (this.pendingRequestId && event.requestId && event.requestId !== this.pendingRequestId) {
+      logMqttDebug('event:ignored-other-request', {
+        event: event.event,
+        requestId: event.requestId,
+        pendingRequestId: this.pendingRequestId,
+      });
+      return;
+    }
+
+    if (this.pendingRequestId && event.requestId !== this.pendingRequestId) {
+      logMqttDebug('event:ignored-missing-or-mismatched-request', {
+        event: event.event,
+        requestId: event.requestId ?? null,
+        pendingRequestId: this.pendingRequestId,
+      });
       return;
     }
 
@@ -404,6 +468,14 @@ class SerialSensorService {
       return;
     }
 
+    logMqttDebug('status:received', {
+      state: decoded.state,
+      sensorId: decoded.sensorId ?? null,
+      message: decoded.message ?? null,
+      availabilityRequestId: this.availabilityRequestId,
+      activeSensorId: this.activeSensorId,
+    });
+
     if (this.activeSensorId && decoded.sensorId && decoded.sensorId !== this.activeSensorId) {
       return;
     }
@@ -422,13 +494,24 @@ class SerialSensorService {
     }
   }
 
-  private async publishRawCommand(command: SensorCommandName, requestId: string, mode?: SensorScanMode): Promise<void> {
+  private async publishRawCommand(
+    command: SensorCommandName,
+    requestId: string,
+    mode?: SensorScanMode
+  ): Promise<void> {
     if (!this.client || (this._state !== 'connecting' && this._state !== 'connected')) {
       throw new Error('Capteur MQTT non connecté. Vérifiez le broker et l\'agent matériel.');
     }
 
     await new Promise<void>((resolve, reject) => {
       const payload = JSON.stringify(buildSensorCommandMessage(command, requestId, mode));
+      logMqttDebug('command:publish', {
+        command,
+        requestId,
+        mode: mode ?? null,
+        topic: this.config.commandTopic,
+        payload,
+      });
       this.client?.publish(this.config.commandTopic, payload, { qos: 1 }, (error) => {
         if (error) {
           reject(new Error(`Publication MQTT impossible: ${error.message}`));
@@ -475,7 +558,11 @@ class SerialSensorService {
     });
   }
 
-  private async publishCommand(command: SensorCommandName, requestId: string, mode?: SensorScanMode): Promise<void> {
+  private async publishCommand(
+    command: SensorCommandName,
+    requestId: string,
+    mode?: SensorScanMode
+  ): Promise<void> {
     if (!this.client || this._state !== 'connected') {
       throw new Error('Capteur MQTT non connecté. Vérifiez le broker et l\'agent matériel.');
     }
