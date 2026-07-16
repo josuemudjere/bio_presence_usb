@@ -39,14 +39,11 @@ public class InscriptionService {
   }
 
   public Set<UUID> getStudentIdsForCourse(Long coursId) {
-    return inscriptionRepository.findByCoursIdAndStatut(coursId, StatutInscription.VALIDEE).stream()
-      .filter(inscription -> inscription.etudiant != null && inscription.etudiant.id != null)
-      .map(inscription -> inscription.etudiant.id)
-      .collect(java.util.stream.Collectors.toSet());
+    return inscriptionRepository.findDistinctEtudiantIdsByCoursIdAndStatut(coursId, StatutInscription.VALIDEE);
   }
 
   public long countStudentsForCourse(Long coursId) {
-    return inscriptionRepository.countByCoursIdAndStatut(coursId, StatutInscription.VALIDEE);
+    return inscriptionRepository.countDistinctEtudiantIdsByCoursIdAndStatut(coursId, StatutInscription.VALIDEE);
   }
 
   public List<Long> getCourseIdsForStudent(UUID studentId) {

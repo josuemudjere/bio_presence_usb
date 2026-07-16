@@ -8,10 +8,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
-import { fetchAttendanceForCours, fetchAttendanceWeekForCours, fetchCours } from '@/lib/adminApi';
-import type { AttendanceRecord, Cours } from '@/lib/adminData';
+import { fetchAttendanceForCours, fetchAttendanceWeekForCours, fetchCours, fetchPromotions, fetchStudentsForCours } from '@/lib/adminApi';
+import type { AttendanceRecord, Cours, Promotion, Student } from '@/lib/adminData';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { addPdfUsbLogo } from '@/lib/pdf';
 
 const TEACHER_SELECTED_COURSE_KEY = 'biopresence_teacher_selected_course';
 
@@ -32,59 +33,295 @@ function toIsoDate(d: Date): string {
   return d.toISOString().split('T')[0];
 }
 
-function generateDailyPdf(records: AttendanceRecord[], date: string, coursName: string) {
-  // Le rapport journalier vise un usage administratif immédiat avec une mise en page simple.
-  const doc = new jsPDF();
-  doc.setFontSize(16);
-  doc.text(`Rapport de présence — ${coursName}`, 14, 18);
-  doc.setFontSize(11);
-  doc.text(`Date : ${formatDate(date)}`, 14, 28);
-  doc.text(`Généré le : ${new Intl.DateTimeFormat('fr-FR').format(new Date())}`, 14, 34);
-
-  autoTable(doc, {
-    startY: 42,
-    head: [['Nom', 'Matricule', 'Département', 'Entrée', 'Sortie', 'Statut']],
-    body: records.map(r => [
-      r.studentName,
-      r.matricule,
-      r.department,
-      r.checkIn || '--',
-      r.checkOut || '--',
-      r.status === 'Clôturé' ? 'Clôturé' : 'En cours',
-    ]),
-    headStyles: { fillColor: [15, 23, 42] },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
-  });
-
-  doc.save(`presence_${date}.pdf`);
+function formatStudentFullName(student: Pick<Student, 'name' | 'postNom' | 'prenom'>): string {
+  return [student.name, student.postNom, student.prenom]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ');
 }
 
-function generateWeeklyPdf(records: AttendanceRecord[], startDate: string, endDate: string, coursName: string) {
-  // La version hebdomadaire passe en paysage pour garder toutes les colonnes lisibles.
-  const doc = new jsPDF({ orientation: 'landscape' });
-  doc.setFontSize(16);
-  doc.text(`Rapport hebdomadaire — ${coursName}`, 14, 18);
-  doc.setFontSize(11);
-  doc.text(`Semaine du ${formatDate(startDate)} au ${formatDate(endDate)}`, 14, 28);
-  doc.text(`Généré le : ${new Intl.DateTimeFormat('fr-FR').format(new Date())}`, 14, 34);
+function getStudentInitials(fullName: string): string {
+  return fullName
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+}
 
-  autoTable(doc, {
-    startY: 42,
-    head: [['Date', 'Nom', 'Matricule', 'Département', 'Entrée', 'Sortie', 'Statut']],
-    body: records.map(r => [
-      formatDate(r.date),
-      r.studentName,
-      r.matricule,
-      r.department,
-      r.checkIn || '--',
-      r.checkOut || '--',
-      r.status === 'Clôturé' ? 'Clôturé' : 'En cours',
-    ]),
-    headStyles: { fillColor: [15, 23, 42] },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
+function parseTimeToMinutes(value?: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const [hours, minutes] = value.split(':').map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null;
+  }
+
+  return (hours * 60) + minutes;
+}
+
+function resolveStudentFiliere(student: Student | undefined, promotions: Promotion[]): string {
+  if (student?.promotionId != null) {
+    const promotion = promotions.find((item) => item.id === student.promotionId);
+    if (promotion?.programme && promotion.programme.trim().length > 0) {
+      return promotion.programme;
+    }
+  }
+
+  return 'Non définie';
+}
+
+type PresencePdfRow = {
+  photoUrl?: string;
+  statusLabel: string;
+  cells: string[];
+};
+
+async function generatePresencePdf(options: {
+  metadata: Array<{ label: string; value: string }>;
+  head: string[];
+  rows: PresencePdfRow[];
+  fileName: string;
+  photoColumnIndex: number;
+}) {
+  const { metadata, head, rows, fileName, photoColumnIndex } = options;
+  const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'landscape' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const leftMargin = 40;
+  const rightMargin = 40;
+  const logoWidth = 68;
+
+  const { logoBottomY } = await addPdfUsbLogo(doc, { x: pageWidth - rightMargin - logoWidth, y: 34, width: logoWidth, gap: 0 });
+
+  doc.setTextColor(17, 24, 39);
+  doc.setFontSize(20);
+  doc.setFont('helvetica', 'bold');
+  doc.text('CONTROLE DE PRESENCE', pageWidth / 2, 44, { align: 'center' });
+
+  const headerTop = 94;
+  const labelColor: [number, number, number] = [33, 97, 191];
+  const valueColor: [number, number, number] = [31, 41, 55];
+
+  metadata.forEach((item, index) => {
+    const y = headerTop + (index * 20);
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...labelColor);
+    doc.text(`${item.label}:`, leftMargin, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...valueColor);
+    doc.text(item.value, leftMargin + 84, y);
   });
 
-  doc.save(`presence_semaine_${startDate}_${endDate}.pdf`);
+  autoTable(doc, {
+    startY: Math.max(188, logoBottomY + 26),
+    head: [head],
+    body: rows.map((row) => row.cells),
+    theme: 'grid',
+    margin: { left: leftMargin, right: rightMargin, bottom: 30 },
+    styles: {
+      fontSize: 10,
+      cellPadding: { top: 8, right: 6, bottom: 8, left: 6 },
+      minCellHeight: 48,
+      valign: 'middle',
+      textColor: [30, 41, 59],
+      lineColor: [191, 219, 254],
+      lineWidth: 0.6,
+    },
+    headStyles: {
+      fillColor: [29, 78, 216],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      halign: 'center',
+      minCellHeight: 30,
+    },
+    bodyStyles: {
+      fillColor: [255, 255, 255],
+    },
+    alternateRowStyles: {
+      fillColor: [239, 246, 255],
+    },
+    columnStyles: head.reduce<Record<number, { cellWidth?: number; halign?: 'left' | 'center' | 'right' }>>((acc, _, index) => {
+      if (index === photoColumnIndex) {
+        acc[index] = { cellWidth: 64, halign: 'center' };
+      } else if (head[index] === 'Nom complet') {
+        acc[index] = { cellWidth: 180 };
+      } else if (head[index] === 'Matricule') {
+        acc[index] = { cellWidth: 88, halign: 'center' };
+      } else if (head[index] === 'Filière') {
+        acc[index] = { cellWidth: 130 };
+      } else if (head[index] === 'Entrée' || head[index] === 'Sortie' || head[index] === 'Statut' || head[index] === 'Date') {
+        acc[index] = { cellWidth: 76, halign: 'center' };
+      }
+
+      return acc;
+    }, {}),
+    didParseCell: (data) => {
+      const statusColumnIndex = head.indexOf('Statut');
+      if (data.section === 'body' && data.column.index === statusColumnIndex) {
+        if (String(data.cell.raw).toLowerCase() === 'absent') {
+          data.cell.styles.textColor = [185, 28, 28];
+          data.cell.styles.fillColor = [254, 242, 242];
+        } else {
+          data.cell.styles.textColor = [21, 128, 61];
+          data.cell.styles.fillColor = [240, 253, 244];
+        }
+        data.cell.styles.fontStyle = 'bold';
+      }
+    },
+    didDrawCell: (data) => {
+      if (data.section !== 'body' || data.column.index !== photoColumnIndex) {
+        return;
+      }
+
+      const photoUrl = rows[data.row.index]?.photoUrl;
+      if (!photoUrl) {
+        return;
+      }
+
+      const size = 32;
+      const x = data.cell.x + (data.cell.width - size) / 2;
+      const y = data.cell.y + (data.cell.height - size) / 2;
+      doc.addImage(photoUrl, x, y, size, size);
+    },
+  });
+
+  doc.save(fileName);
+}
+
+async function generateDailyPdf(records: AttendanceRecord[], date: string, course: Cours | null, students: Student[], promotions: Promotion[]) {
+  const uniquePromotions = Array.from(new Set(
+    students
+      .map((student) => student.level)
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+  ));
+  const uniqueDepartments = Array.from(new Set(
+    records
+      .map((record) => students.find((student) => student.id === record.studentId)?.department ?? record.department)
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+  ));
+  const courseStartMinutes = parseTimeToMinutes(course?.heureDebut);
+  const courseEndMinutes = parseTimeToMinutes(course?.heureFin);
+  const courseDurationMinutes =
+    courseStartMinutes != null && courseEndMinutes != null && courseEndMinutes > courseStartMinutes
+      ? courseEndMinutes - courseStartMinutes
+      : null;
+  const minimumAttendanceMinutes = courseDurationMinutes != null ? Math.ceil(courseDurationMinutes * 0.75) : null;
+
+  const rows = records.map((record) => {
+    const student = students.find((item) => item.id === record.studentId);
+    const fullName = student ? formatStudentFullName(student) : record.studentName;
+    const checkInMinutes = parseTimeToMinutes(record.checkIn);
+    const checkOutMinutes = parseTimeToMinutes(record.checkOut);
+    const attendedMinutes =
+      checkInMinutes != null && checkOutMinutes != null && checkOutMinutes >= checkInMinutes
+        ? checkOutMinutes - checkInMinutes
+        : null;
+    const leftEarly = checkOutMinutes != null && courseEndMinutes != null && checkOutMinutes < courseEndMinutes;
+    const isAbsentForReport =
+      leftEarly &&
+      record.estJustifiee === false &&
+      minimumAttendanceMinutes != null &&
+      attendedMinutes != null &&
+      attendedMinutes < minimumAttendanceMinutes;
+    const statusLabel = isAbsentForReport ? 'Absent' : 'Présent';
+
+    return {
+      photoUrl: student?.photoUrl,
+      statusLabel,
+      cells: [
+        student?.photoUrl ? '' : getStudentInitials(fullName),
+        fullName,
+        record.matricule,
+        resolveStudentFiliere(student, promotions),
+        record.checkIn || '--',
+        record.checkOut || 'En attente',
+        statusLabel,
+      ],
+    } satisfies PresencePdfRow;
+  });
+
+  await generatePresencePdf({
+    metadata: [
+      { label: 'Date du jour', value: formatDate(date) },
+      { label: 'Cours', value: course?.nom ?? 'Non défini' },
+      { label: 'Promotion', value: uniquePromotions.join(', ') || 'Non définie' },
+      { label: 'Departement', value: uniqueDepartments.join(', ') || 'Non défini' },
+    ],
+    head: ['Photo', 'Nom complet', 'Matricule', 'Filière', 'Entrée', 'Sortie', 'Statut'],
+    rows,
+    fileName: `presence_${date}.pdf`,
+    photoColumnIndex: 0,
+  });
+}
+
+async function generateWeeklyPdf(records: AttendanceRecord[], startDate: string, endDate: string, course: Cours | null, students: Student[], promotions: Promotion[]) {
+  const uniquePromotions = Array.from(new Set(
+    students
+      .map((student) => student.level)
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+  ));
+  const uniqueDepartments = Array.from(new Set(
+    records
+      .map((record) => students.find((student) => student.id === record.studentId)?.department ?? record.department)
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+  ));
+  const courseStartMinutes = parseTimeToMinutes(course?.heureDebut);
+  const courseEndMinutes = parseTimeToMinutes(course?.heureFin);
+  const courseDurationMinutes =
+    courseStartMinutes != null && courseEndMinutes != null && courseEndMinutes > courseStartMinutes
+      ? courseEndMinutes - courseStartMinutes
+      : null;
+  const minimumAttendanceMinutes = courseDurationMinutes != null ? Math.ceil(courseDurationMinutes * 0.75) : null;
+
+  const rows = records.map((record) => {
+    const student = students.find((item) => item.id === record.studentId);
+    const fullName = student ? formatStudentFullName(student) : record.studentName;
+    const checkInMinutes = parseTimeToMinutes(record.checkIn);
+    const checkOutMinutes = parseTimeToMinutes(record.checkOut);
+    const attendedMinutes =
+      checkInMinutes != null && checkOutMinutes != null && checkOutMinutes >= checkInMinutes
+        ? checkOutMinutes - checkInMinutes
+        : null;
+    const leftEarly = checkOutMinutes != null && courseEndMinutes != null && checkOutMinutes < courseEndMinutes;
+    const isAbsentForReport =
+      leftEarly &&
+      record.estJustifiee === false &&
+      minimumAttendanceMinutes != null &&
+      attendedMinutes != null &&
+      attendedMinutes < minimumAttendanceMinutes;
+    const statusLabel = isAbsentForReport ? 'Absent' : 'Présent';
+
+    return {
+      photoUrl: student?.photoUrl,
+      statusLabel,
+      cells: [
+        formatDate(record.date),
+        student?.photoUrl ? '' : getStudentInitials(fullName),
+        fullName,
+        record.matricule,
+        resolveStudentFiliere(student, promotions),
+        record.checkIn || '--',
+        record.checkOut || 'En attente',
+        statusLabel,
+      ],
+    } satisfies PresencePdfRow;
+  });
+
+  await generatePresencePdf({
+    metadata: [
+      { label: 'Date du jour', value: `Du ${formatDate(startDate)} au ${formatDate(endDate)}` },
+      { label: 'Cours', value: course?.nom ?? 'Non défini' },
+      { label: 'Promotion', value: uniquePromotions.join(', ') || 'Non définie' },
+      { label: 'Departement', value: uniqueDepartments.join(', ') || 'Non défini' },
+    ],
+    head: ['Date', 'Photo', 'Nom complet', 'Matricule', 'Filière', 'Entrée', 'Sortie', 'Statut'],
+    rows,
+    fileName: `presence_semaine_${startDate}_${endDate}.pdf`,
+    photoColumnIndex: 1,
+  });
 }
 
 export default function UtilisateurRapports() {
@@ -93,6 +330,8 @@ export default function UtilisateurRapports() {
   const assignedCourseIds = user?.coursIds ?? (user?.coursId != null ? [user.coursId] : []);
   const [assignedCourses, setAssignedCourses] = useState<Cours[]>([]);
   const [selectedCoursId, setSelectedCoursId] = useState<number | null>(assignedCourseIds[0] ?? null);
+  const [courseStudents, setCourseStudents] = useState<Student[]>([]);
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
 
   useEffect(() => {
     // Je restaure le dernier cours choisi si l'utilisateur y a encore accès.
@@ -121,16 +360,18 @@ export default function UtilisateurRapports() {
 
     const loadAssignedCourses = async () => {
       try {
-        const allCourses = await fetchCours();
+        const [allCourses, allPromotions] = await Promise.all([fetchCours(), fetchPromotions()]);
         if (!mounted) {
           return;
         }
         setAssignedCourses(allCourses.filter((course) => assignedCourseIds.includes(course.id)));
+        setPromotions(allPromotions);
       } catch {
         if (!mounted) {
           return;
         }
         setAssignedCourses([]);
+        setPromotions([]);
       }
     };
 
@@ -140,6 +381,38 @@ export default function UtilisateurRapports() {
       mounted = false;
     };
   }, [user?.id]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadCourseStudents = async () => {
+      if (!selectedCoursId) {
+        setCourseStudents([]);
+        return;
+      }
+
+      try {
+        const students = await fetchStudentsForCours(selectedCoursId);
+        if (!mounted) {
+          return;
+        }
+
+        setCourseStudents(students);
+      } catch {
+        if (!mounted) {
+          return;
+        }
+
+        setCourseStudents([]);
+      }
+    };
+
+    void loadCourseStudents();
+
+    return () => {
+      mounted = false;
+    };
+  }, [selectedCoursId]);
 
   const [dailyDate, setDailyDate] = useState(toIsoDate(new Date()));
   const [dailyLoading, setDailyLoading] = useState(false);
@@ -319,7 +592,7 @@ export default function UtilisateurRapports() {
                             </table>
                           </div>
                           <Button
-                            onClick={() => generateDailyPdf(dailyRecords, dailyDate, coursName)}
+                            onClick={() => generateDailyPdf(dailyRecords, dailyDate, selectedCourse, courseStudents, promotions)}
                             className="gap-2 bg-slate-900 hover:bg-slate-800"
                           >
                             <Download className="w-4 h-4" />
@@ -400,7 +673,7 @@ export default function UtilisateurRapports() {
                             </table>
                           </div>
                           <Button
-                            onClick={() => generateWeeklyPdf(weekRecords, weekStart, weekEnd, coursName)}
+                            onClick={() => generateWeeklyPdf(weekRecords, weekStart, weekEnd, selectedCourse, courseStudents, promotions)}
                             className="gap-2 bg-slate-900 hover:bg-slate-800"
                           >
                             <Download className="w-4 h-4" />

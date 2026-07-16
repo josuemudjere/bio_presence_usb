@@ -12,9 +12,9 @@
 namespace {
 
 constexpr char WIFI_SSID[] = "Josué M.";
-constexpr char WIFI_PASSWORD[] = "jomu@2026";
+constexpr char WIFI_PASSWORD[] = "jomud@2026";
 
-constexpr char MQTT_HOST[] = "172.20.10.2";
+constexpr char MQTT_HOST[] = "172.20.10.3";
 constexpr uint16_t MQTT_PORT = 1884;
 constexpr char MQTT_USERNAME[] = "";
 constexpr char MQTT_PASSWORD[] = "";
@@ -29,20 +29,29 @@ constexpr uint8_t OLED_SCL_PIN = 5;    // D1
 constexpr uint8_t GREEN_LED_PIN = 16;  // D0
 constexpr uint8_t RED_LED_PIN = 0;     // D3
 constexpr uint8_t BUZZER_PIN = 13;     // D7
-constexpr uint32_t FINGER_SENSOR_BAUD = 57600;
+constexpr uint32_t DEFAULT_FINGER_SENSOR_BAUD = 19200;
+constexpr uint32_t FALLBACK_FINGER_SENSOR_BAUD = 57600;
+constexpr uint8_t SENSOR_INIT_VERIFY_RETRIES = 3;
+constexpr uint16_t SENSOR_INIT_VERIFY_DELAY_MS = 120;
 constexpr uint32_t WIFI_RETRY_DELAY_MS = 500;
 constexpr uint32_t MQTT_RETRY_DELAY_MS = 2000;
 constexpr uint32_t STATUS_PUBLISH_INTERVAL_MS = 15000;
 constexpr uint32_t FINGER_WAIT_TIMEOUT_MS = 30000;
 constexpr uint32_t REMOVE_FINGER_TIMEOUT_MS = 10000;
+constexpr uint32_t ENROLL_REMOVE_TIMEOUT_MS = 16000;
 constexpr uint8_t ENROLL_CONVERT_RETRIES = 3;
 constexpr uint8_t ENROLL_VERIFY_RETRIES = 3;
 constexpr uint8_t CAPTURE_RECOVERY_RETRIES = 5;
 constexpr uint16_t CAPTURE_RECOVERY_DELAY_MS = 120;
+constexpr uint8_t SENSOR_PACKET_RETRY_COUNT = 3;
+constexpr uint16_t SENSOR_PACKET_RETRY_DELAY_MS = 90;
 constexpr uint16_t NO_FINGER_POLL_DELAY_MS = 180;
 constexpr uint8_t FINGER_PRESENCE_CONFIRMATION_COUNT = 5;
+constexpr uint8_t FINGER_REMOVAL_CONFIRMATION_COUNT = 3;
+constexpr uint8_t ENROLL_FINGER_PRESENCE_CONFIRMATION_COUNT = 3;
 constexpr uint16_t FINGER_PRESENCE_CONFIRMATION_DELAY_MS = 80;
 constexpr uint16_t FINGER_PRESENCE_CONFIRMATION_WINDOW_MS = 320;
+constexpr uint16_t ENROLL_FINGER_PRESENCE_CONFIRMATION_WINDOW_MS = 160;
 constexpr uint8_t SCAN_MATCH_RETRIES = 3;
 constexpr uint16_t SCAN_RETRY_DELAY_MS = 180;
 constexpr uint32_t SCAN_RETRY_REMOVE_TIMEOUT_MS = 5000;
@@ -53,6 +62,11 @@ constexpr uint16_t ERROR_TONE_DURATION_MS = 320;
 constexpr uint16_t SIGNAL_PAUSE_MS = 60;
 constexpr uint16_t SUCCESS_LED_HOLD_MS = 700;
 constexpr uint16_t ERROR_LED_HOLD_MS = 1200;
+constexpr uint16_t CAPTURE_BLINK_INTERVAL_MS = 180;
+constexpr uint16_t ACTIVITY_LED_HOLD_MS = 1500;
+constexpr size_t MQTT_EVENT_BUFFER_SIZE = 1536;
+constexpr size_t FINGERPRINT_TEMPLATE_SIZE = 512;
+constexpr size_t FINGERPRINT_TEMPLATE_PACKET_SIZE = 534;
 constexpr uint16_t MAX_FINGERPRINT_SLOTS = 127;
 constexpr int SENSOR_CANCELLED = -100;
 constexpr int SENSOR_TIMEOUT = -101;
@@ -86,10 +100,12 @@ bool cancelRequested = false;
 bool scannerBusy = false;
 bool displayReady = false;
 bool successSignalArmed = true;
+uint32_t activeFingerSensorBaud = DEFAULT_FINGER_SENSOR_BAUD;
 unsigned long lastStatusPublishAt = 0;
 unsigned long lastIdlePromptAt = 0;
 unsigned long successLedUntil = 0;
 unsigned long errorLedUntil = 0;
+unsigned long activityLedUntil = 0;
 
 enum class DisplayIcon {
   Fingerprint,
@@ -97,6 +113,15 @@ enum class DisplayIcon {
   Error,
   Info,
 };
+
+void processSensorCriticalLoop(uint16_t delayMs);
+void flushFingerprintSerialBuffer();
+bool resyncFingerprintSensor(const char *stepLabel);
+bool beginFingerprintSensor();
+bool tryBeginFingerprintSensorAtBaud(uint32_t baudRate);
+bool checkCancellation(bool allowMqttProcessing = true);
+String encodeBase64(const uint8_t *data, size_t length);
+bool exportFingerprintTemplateBase64(uint16_t slotId, String &templateBase64);
 
 void setGreenLed(bool enabled) {
   digitalWrite(GREEN_LED_PIN, enabled ? HIGH : LOW);
@@ -109,15 +134,21 @@ void setRedLed(bool enabled) {
 void clearSignals() {
   successLedUntil = 0;
   errorLedUntil = 0;
+  activityLedUntil = 0;
   setGreenLed(false);
   setRedLed(false);
   noTone(BUZZER_PIN);
 }
 
+void holdActivitySignal(uint16_t durationMs = ACTIVITY_LED_HOLD_MS) {
+  unsigned long nextUntil = millis() + durationMs;
+  if (nextUntil > activityLedUntil) {
+    activityLedUntil = nextUntil;
+  }
+}
+
 void updateSignalOutputs() {
   unsigned long now = millis();
-  setGreenLed(successLedUntil != 0 && now < successLedUntil);
-  setRedLed(errorLedUntil != 0 && now < errorLedUntil);
 
   if (successLedUntil != 0 && now >= successLedUntil) {
     successLedUntil = 0;
@@ -128,6 +159,32 @@ void updateSignalOutputs() {
     errorLedUntil = 0;
     setRedLed(false);
   }
+
+  if (successLedUntil != 0) {
+    setGreenLed(now < successLedUntil);
+    setRedLed(false);
+    return;
+  }
+
+  if (errorLedUntil != 0) {
+    setGreenLed(false);
+    setRedLed(now < errorLedUntil);
+    return;
+  }
+
+  if (activityLedUntil != 0) {
+    if (now >= activityLedUntil) {
+      activityLedUntil = 0;
+    } else {
+      bool blinkOn = ((now / CAPTURE_BLINK_INTERVAL_MS) % 2) == 0;
+      setGreenLed(blinkOn);
+      setRedLed(false);
+      return;
+    }
+  }
+
+  setGreenLed(false);
+  setRedLed(false);
 }
 
 void playSuccessSignal() {
@@ -240,6 +297,7 @@ void showIdlePrompt() {
 }
 
 void showScanningPrompt() {
+  holdActivitySignal();
   renderDisplay(DisplayIcon::Fingerprint, "Scannage...", "Lecture en cours", "Ne bougez pas");
 }
 
@@ -322,8 +380,27 @@ void publishStatus(const char *state, const char *message) {
   lastStatusPublishAt = millis();
 }
 
-void publishEvent(const char *eventName, const String &requestId, const String &fingerprintId, const char *message) {
+size_t buildStatusPayload(char *buffer, size_t bufferSize, const char *state, const char *message) {
   StaticJsonDocument<256> doc;
+  doc["version"] = "1.0";
+  doc["state"] = state;
+  doc["updatedAt"] = isoTimestamp();
+  doc["sensorId"] = SENSOR_ID;
+  if (message && message[0] != '\0') {
+    doc["message"] = message;
+  }
+  JsonArray capabilities = doc.createNestedArray("capabilities");
+  capabilities.add("SCAN");
+  capabilities.add("ENROLL");
+  capabilities.add("PING");
+  capabilities.add("CANCEL");
+  capabilities.add("REJECT");
+
+  return serializeJson(doc, buffer, bufferSize);
+}
+
+void publishEvent(const char *eventName, const String &requestId, const String &fingerprintId, const char *message, const String &fingerprintTemplateBase64 = String()) {
+  DynamicJsonDocument doc(MQTT_EVENT_BUFFER_SIZE);
   doc["version"] = "1.0";
   doc["event"] = eventName;
   doc["occurredAt"] = isoTimestamp();
@@ -334,17 +411,106 @@ void publishEvent(const char *eventName, const String &requestId, const String &
   if (fingerprintId.length() > 0) {
     doc["fingerprintId"] = fingerprintId;
   }
+  if (fingerprintTemplateBase64.length() > 0) {
+    doc["fingerprintTemplateBase64"] = fingerprintTemplateBase64;
+  }
   if (message && message[0] != '\0') {
     doc["message"] = message;
   }
 
-  char payload[256];
-  size_t written = serializeJson(doc, payload, sizeof(payload));
+  String payload;
+  payload.reserve(MQTT_EVENT_BUFFER_SIZE);
+  size_t written = serializeJson(doc, payload);
   logSensorStep(
     "publishEvent",
-    String(eventName) + " | req=" + requestId + " | finger=" + fingerprintId + " | msg=" + (message ? String(message) : String())
+    String(eventName) + " | req=" + requestId + " | finger=" + fingerprintId + " | template=" + String(fingerprintTemplateBase64.length()) + " bytes64 | msg=" + (message ? String(message) : String())
   );
-  mqttClient.publish(eventsTopic, reinterpret_cast<const uint8_t *>(payload), written, false);
+  mqttClient.publish(eventsTopic, reinterpret_cast<const uint8_t *>(payload.c_str()), written, false);
+}
+
+String encodeBase64(const uint8_t *data, size_t length) {
+  static const char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  String encoded;
+  encoded.reserve(((length + 2) / 3) * 4);
+
+  for (size_t index = 0; index < length; index += 3) {
+    uint32_t chunk = static_cast<uint32_t>(data[index]) << 16;
+    bool hasSecondByte = index + 1 < length;
+    bool hasThirdByte = index + 2 < length;
+
+    if (hasSecondByte) {
+      chunk |= static_cast<uint32_t>(data[index + 1]) << 8;
+    }
+    if (hasThirdByte) {
+      chunk |= static_cast<uint32_t>(data[index + 2]);
+    }
+
+    encoded += alphabet[(chunk >> 18) & 0x3F];
+    encoded += alphabet[(chunk >> 12) & 0x3F];
+    encoded += hasSecondByte ? alphabet[(chunk >> 6) & 0x3F] : '=';
+    encoded += hasThirdByte ? alphabet[chunk & 0x3F] : '=';
+  }
+
+  return encoded;
+}
+
+bool exportFingerprintTemplateBase64(uint16_t slotId, String &templateBase64) {
+  fingerprintSerial.listen();
+  holdActivitySignal();
+  uint8_t loadResult = finger.loadModel(slotId);
+  if (loadResult != FINGERPRINT_OK) {
+    logSensorStep("enroll:load-model", String("failed slot=") + slotId + " | code=" + loadResult);
+    return false;
+  }
+
+  fingerprintSerial.listen();
+  holdActivitySignal();
+  uint8_t getModelResult = finger.getModel();
+  if (getModelResult != FINGERPRINT_OK) {
+    logSensorStep("enroll:get-model", String("failed slot=") + slotId + " | code=" + getModelResult);
+    return false;
+  }
+
+  uint8_t bytesReceived[FINGERPRINT_TEMPLATE_PACKET_SIZE];
+  memset(bytesReceived, 0xFF, sizeof(bytesReceived));
+
+  size_t bytesRead = 0;
+  unsigned long startedAt = millis();
+  while (bytesRead < sizeof(bytesReceived) && (millis() - startedAt) < 20000) {
+    if (checkCancellation(false)) {
+      return false;
+    }
+
+    fingerprintSerial.listen();
+    while (fingerprintSerial.available() > 0 && bytesRead < sizeof(bytesReceived)) {
+      bytesReceived[bytesRead++] = static_cast<uint8_t>(fingerprintSerial.read());
+      startedAt = millis();
+    }
+
+    if (bytesRead < sizeof(bytesReceived)) {
+      processSensorCriticalLoop(2);
+    }
+  }
+
+  if (bytesRead < sizeof(bytesReceived)) {
+    logSensorStep("enroll:get-model-bytes", String("timeout bytes=") + bytesRead);
+    return false;
+  }
+
+  uint8_t fingerprintTemplate[FINGERPRINT_TEMPLATE_SIZE];
+  memset(fingerprintTemplate, 0xFF, sizeof(fingerprintTemplate));
+  size_t sourceIndex = 9;
+  size_t targetIndex = 0;
+
+  memcpy(fingerprintTemplate + targetIndex, bytesReceived + sourceIndex, 256);
+  sourceIndex += 256;
+  sourceIndex += 2;
+  sourceIndex += 9;
+  targetIndex += 256;
+  memcpy(fingerprintTemplate + targetIndex, bytesReceived + sourceIndex, 256);
+
+  templateBase64 = encodeBase64(fingerprintTemplate, sizeof(fingerprintTemplate));
+  return templateBase64.length() > 0;
 }
 
 void processNetwork() {
@@ -352,6 +518,14 @@ void processNetwork() {
   mqttClient.loop();
   yield();
   delay(10);
+}
+
+void processSensorCriticalLoop(uint16_t delayMs = 2) {
+  updateSignalOutputs();
+  yield();
+  if (delayMs > 0) {
+    delay(delayMs);
+  }
 }
 
 void connectToWifi() {
@@ -382,14 +556,32 @@ bool connectToMqtt() {
   }
 
   String clientId = String("biopresence-") + SENSOR_ID + String("-") + String(ESP.getChipId(), HEX);
+  char willPayload[256];
+  buildStatusPayload(willPayload, sizeof(willPayload), "OFFLINE", "Capteur deconnecte inopinement");
   Serial.printf("Connecting to MQTT broker %s:%u\n", MQTT_HOST, MQTT_PORT);
   logSensorStep("connectToMqtt", String("clientId=") + clientId);
   successSignalArmed = false;
   bool connected;
   if (strlen(MQTT_USERNAME) > 0) {
-    connected = mqttClient.connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD);
+    connected = mqttClient.connect(
+      clientId.c_str(),
+      MQTT_USERNAME,
+      MQTT_PASSWORD,
+      statusTopic,
+      1,
+      true,
+      willPayload
+    );
   } else {
-    connected = mqttClient.connect(clientId.c_str());
+    connected = mqttClient.connect(
+      clientId.c_str(),
+      nullptr,
+      nullptr,
+      statusTopic,
+      1,
+      true,
+      willPayload
+    );
   }
 
   if (!connected) {
@@ -411,8 +603,12 @@ bool connectToMqtt() {
   return true;
 }
 
-bool checkCancellation() {
-  processNetwork();
+bool checkCancellation(bool allowMqttProcessing) {
+  if (allowMqttProcessing) {
+    processNetwork();
+  } else {
+    processSensorCriticalLoop();
+  }
   if (!cancelRequested) {
     return false;
   }
@@ -427,17 +623,23 @@ bool checkCancellation() {
   return true;
 }
 
-int waitForFingerImage(uint32_t timeoutMs, bool publishFingerPlaced) {
+int waitForFingerImage(
+  uint32_t timeoutMs,
+  bool publishFingerPlaced,
+  uint8_t requiredConfirmationCount = FINGER_PRESENCE_CONFIRMATION_COUNT,
+  uint16_t requiredConfirmationWindowMs = FINGER_PRESENCE_CONFIRMATION_WINDOW_MS
+) {
   unsigned long startAt = millis();
   uint8_t recoverableErrorCount = 0;
   uint8_t confirmedFingerReads = 0;
   unsigned long firstConfirmedFingerAt = 0;
 
   while (millis() - startAt < timeoutMs) {
-    if (checkCancellation()) {
+    if (checkCancellation(false)) {
       return SENSOR_CANCELLED;
     }
 
+    fingerprintSerial.listen();
     uint8_t result = finger.getImage();
     if (result == FINGERPRINT_OK) {
       if (confirmedFingerReads == 0) {
@@ -447,11 +649,10 @@ int waitForFingerImage(uint32_t timeoutMs, bool publishFingerPlaced) {
       confirmedFingerReads += 1;
       unsigned long confirmedPresenceDuration = millis() - firstConfirmedFingerAt;
       if (
-        confirmedFingerReads < FINGER_PRESENCE_CONFIRMATION_COUNT ||
-        confirmedPresenceDuration < FINGER_PRESENCE_CONFIRMATION_WINDOW_MS
+        confirmedFingerReads < requiredConfirmationCount ||
+        confirmedPresenceDuration < requiredConfirmationWindowMs
       ) {
-        processNetwork();
-        delay(FINGER_PRESENCE_CONFIRMATION_DELAY_MS);
+        processSensorCriticalLoop(FINGER_PRESENCE_CONFIRMATION_DELAY_MS);
         continue;
       }
 
@@ -481,8 +682,10 @@ int waitForFingerImage(uint32_t timeoutMs, bool publishFingerPlaced) {
       recoverableErrorCount += 1;
       if (recoverableErrorCount < CAPTURE_RECOVERY_RETRIES) {
         renderDisplay(DisplayIcon::Info, "Lecture capteur", "Nouvel essai...", "Gardez le doigt fixe");
-        delay(CAPTURE_RECOVERY_DELAY_MS);
-        processNetwork();
+        if (result == FINGERPRINT_PACKETRECIEVEERR) {
+          resyncFingerprintSensor("capture:get-image");
+        }
+        processSensorCriticalLoop(CAPTURE_RECOVERY_DELAY_MS);
         continue;
       }
     }
@@ -495,17 +698,27 @@ int waitForFingerImage(uint32_t timeoutMs, bool publishFingerPlaced) {
   return SENSOR_TIMEOUT;
 }
 
-int waitForFingerRemoval(uint32_t timeoutMs) {
+int waitForFingerRemoval(uint32_t timeoutMs, uint8_t requiredConfirmationCount = FINGER_REMOVAL_CONFIRMATION_COUNT) {
   unsigned long startAt = millis();
+  uint8_t confirmedNoFingerReads = 0;
+
   while (millis() - startAt < timeoutMs) {
-    if (checkCancellation()) {
+    if (checkCancellation(false)) {
       return SENSOR_CANCELLED;
     }
 
-    if (finger.getImage() == FINGERPRINT_NOFINGER) {
-      return FINGERPRINT_OK;
+    fingerprintSerial.listen();
+    uint8_t result = finger.getImage();
+    if (result == FINGERPRINT_NOFINGER) {
+      confirmedNoFingerReads += 1;
+      if (confirmedNoFingerReads >= requiredConfirmationCount) {
+        return FINGERPRINT_OK;
+      }
+    } else if (result == FINGERPRINT_OK) {
+      confirmedNoFingerReads = 0;
     }
-    processNetwork();
+
+    processSensorCriticalLoop(NO_FINGER_POLL_DELAY_MS);
   }
 
   return SENSOR_TIMEOUT;
@@ -528,6 +741,82 @@ void publishSensorError(const char *message) {
 
 void publishSensorError(const String &message) {
   publishSensorError(message.c_str());
+}
+
+void flushFingerprintSerialBuffer() {
+  fingerprintSerial.listen();
+  while (fingerprintSerial.available() > 0) {
+    fingerprintSerial.read();
+  }
+}
+
+bool beginFingerprintSensor() {
+  if (tryBeginFingerprintSensorAtBaud(DEFAULT_FINGER_SENSOR_BAUD)) {
+    return true;
+  }
+
+  if (DEFAULT_FINGER_SENSOR_BAUD != FALLBACK_FINGER_SENSOR_BAUD &&
+      tryBeginFingerprintSensorAtBaud(FALLBACK_FINGER_SENSOR_BAUD)) {
+    logSensorStep("fingerprint:legacy-baud", String("baud=") + FALLBACK_FINGER_SENSOR_BAUD);
+    return true;
+  }
+
+  return false;
+}
+
+bool tryBeginFingerprintSensorAtBaud(uint32_t baudRate) {
+  fingerprintSerial.begin(baudRate);
+  fingerprintSerial.listen();
+  finger.begin(baudRate);
+  flushFingerprintSerialBuffer();
+  processSensorCriticalLoop(SENSOR_INIT_VERIFY_DELAY_MS);
+
+  for (uint8_t attempt = 1; attempt <= SENSOR_INIT_VERIFY_RETRIES; ++attempt) {
+    fingerprintSerial.listen();
+    if (finger.verifyPassword()) {
+      activeFingerSensorBaud = baudRate;
+      logSensorStep("fingerprint:init-ok", String("baud=") + baudRate + " | attempt=" + attempt);
+      return true;
+    }
+
+    logSensorStep("fingerprint:init-retry", String("baud=") + baudRate + " | attempt=" + attempt);
+    flushFingerprintSerialBuffer();
+    processSensorCriticalLoop(SENSOR_INIT_VERIFY_DELAY_MS);
+  }
+
+  logSensorStep("fingerprint:init-failed", String("baud=") + baudRate);
+  return false;
+}
+
+bool resyncFingerprintSensor(const char *stepLabel) {
+  (void)stepLabel;
+  fingerprintSerial.begin(activeFingerSensorBaud);
+  fingerprintSerial.listen();
+  finger.begin(activeFingerSensorBaud);
+  flushFingerprintSerialBuffer();
+  processSensorCriticalLoop(8);
+  return true;
+}
+
+template <typename Operation>
+uint8_t retryFingerprintPacketOperation(Operation operation, const char *stepLabel) {
+  uint8_t lastResult = FINGERPRINT_PACKETRECIEVEERR;
+
+  for (uint8_t attempt = 1; attempt <= SENSOR_PACKET_RETRY_COUNT; ++attempt) {
+    fingerprintSerial.listen();
+    lastResult = operation();
+    if (lastResult != FINGERPRINT_PACKETRECIEVEERR) {
+      return lastResult;
+    }
+
+    logSensorStep(stepLabel, String("packet-retry=") + attempt);
+    if (!resyncFingerprintSensor(stepLabel)) {
+      return lastResult;
+    }
+    processSensorCriticalLoop(SENSOR_PACKET_RETRY_DELAY_MS);
+  }
+
+  return lastResult;
 }
 
 String describeCaptureError(int code) {
@@ -560,14 +849,6 @@ String describeConversionError(uint8_t code) {
   }
 }
 
-void discardEnrollmentSlot(uint16_t slotId) {
-  if (slotId == 0) {
-    return;
-  }
-
-  finger.deleteModel(slotId);
-}
-
 void finishCommand() {
   activeRequestId = "";
   activeCommandName = "";
@@ -582,7 +863,6 @@ void handleScanCommand() {
   publishEvent("ACK", activeRequestId, String(), "Commande de lecture acceptee");
   for (uint8_t attempt = 1; attempt <= SCAN_MATCH_RETRIES; ++attempt) {
     if (attempt > 1) {
-      publishEvent("READY", activeRequestId, String(), "Retirez le doigt avant la nouvelle tentative");
       renderDisplay(DisplayIcon::Info, "Verification", "Retirez le doigt", "un instant");
       int removalResult = waitForFingerRemoval(SCAN_RETRY_REMOVE_TIMEOUT_MS);
       if (removalResult == SENSOR_CANCELLED) {
@@ -596,7 +876,6 @@ void handleScanCommand() {
       delay(SCAN_RETRY_DELAY_MS);
     }
 
-    publishEvent("READY", activeRequestId, String(), attempt == 1 ? "Posez votre doigt sur le capteur" : "Replacez votre doigt pour une nouvelle tentative");
     if (attempt == 1) {
       showIdlePrompt();
     } else {
@@ -621,6 +900,8 @@ void handleScanCommand() {
       continue;
     }
 
+    fingerprintSerial.listen();
+    holdActivitySignal();
     uint8_t convertResult = finger.image2Tz();
     if (convertResult != FINGERPRINT_OK) {
       if (attempt == SCAN_MATCH_RETRIES) {
@@ -633,6 +914,8 @@ void handleScanCommand() {
     }
     showCaptureSuccess("Image capturee", "Verification...");
 
+    fingerprintSerial.listen();
+    holdActivitySignal();
     uint8_t searchResult = finger.fingerFastSearch();
     if (searchResult == FINGERPRINT_OK) {
       publishEvent("MATCH", activeRequestId, formatFingerprintId(finger.fingerID), "Empreinte reconnue");
@@ -666,7 +949,8 @@ void handleScanCommand() {
 
 void handleEnrollCommand() {
   logSensorStep("handleEnrollCommand:start", String("requestId=") + activeRequestId);
-  publishEvent("ACK", activeRequestId, String(), "Commande d'enrolement acceptee");
+  clearSignals();
+  publishEvent("ACK", activeRequestId, String(), "Placez votre doigt pour scanner");
 
   uint16_t slotId = nextEnrollmentSlot();
   logSensorStep("handleEnrollCommand:slot", String("slotId=") + slotId);
@@ -678,157 +962,130 @@ void handleEnrollCommand() {
 
   bool firstTemplateReady = false;
   for (uint8_t attempt = 1; attempt <= ENROLL_CONVERT_RETRIES; ++attempt) {
-    logSensorStep("enroll:first-capture:prompt", String("attempt=") + attempt);
-    publishEvent(
-      "READY",
-      activeRequestId,
-      String(),
-      attempt == 1
-        ? "Posez le doigt bien a plat pour la premiere capture"
-        : "Replacez le doigt bien a plat pour une capture plus nette"
-    );
+    logSensorStep("enroll:single-capture:prompt", String("attempt=") + attempt);
     if (attempt == 1) {
-      renderDisplay(DisplayIcon::Fingerprint, "Enrolement", "Posez le doigt a plat", "sans bouger");
+      renderDisplay(DisplayIcon::Fingerprint, "Enrolement", "Placez votre doigt", "sans bouger");
     } else {
-      renderDisplay(DisplayIcon::Info, "Enrolement", "Repositionnez le doigt", "bien au centre");
+      renderDisplay(DisplayIcon::Info, "Enrolement", "Placez votre doigt", "bien au centre");
     }
 
-    int firstImage = waitForFingerImage(FINGER_WAIT_TIMEOUT_MS, true);
-    logSensorStep("enroll:first-capture:image-result", String(firstImage));
-    if (firstImage == SENSOR_CANCELLED) {
+    int capturedImage = waitForFingerImage(
+      FINGER_WAIT_TIMEOUT_MS,
+      true,
+      ENROLL_FINGER_PRESENCE_CONFIRMATION_COUNT,
+      ENROLL_FINGER_PRESENCE_CONFIRMATION_WINDOW_MS
+    );
+    logSensorStep("enroll:single-capture:image-result", String(capturedImage));
+    if (capturedImage == SENSOR_CANCELLED) {
       return;
     }
-    if (firstImage == SENSOR_TIMEOUT) {
-      publishSensorError("Temps d'attente depasse pour la premiere capture");
+    if (capturedImage == SENSOR_TIMEOUT) {
+      publishSensorError("Temps d'attente depasse pour la capture de l'empreinte");
       finishCommand();
       return;
     }
-    if (firstImage != FINGERPRINT_OK) {
-      publishSensorError(String("Impossible de capturer la premiere image: ") + describeCaptureError(firstImage));
+    if (capturedImage != FINGERPRINT_OK) {
+      publishSensorError(String("Impossible de capturer l'image de l'empreinte: ") + describeCaptureError(capturedImage));
       finishCommand();
       return;
     }
 
+    fingerprintSerial.listen();
+  holdActivitySignal();
     uint8_t firstConvertResult = finger.image2Tz(1);
-    logSensorStep("enroll:first-capture:convert-result", String(firstConvertResult));
-    if (firstConvertResult == FINGERPRINT_OK) {
-      firstTemplateReady = true;
-      break;
+    logSensorStep("enroll:single-capture:convert-buffer-1", String(firstConvertResult));
+    if (firstConvertResult != FINGERPRINT_OK) {
+      if (attempt == ENROLL_CONVERT_RETRIES) {
+        publishSensorError(String("Impossible d'extraire l'empreinte: ") + describeConversionError(firstConvertResult));
+        finishCommand();
+        return;
+      }
+
+      renderDisplay(DisplayIcon::Error, "Image refusee", "Ajustez legerement", "puis recommencez");
+      continue;
     }
 
-    if (attempt == ENROLL_CONVERT_RETRIES) {
-      publishSensorError(String("Impossible d'extraire la premiere empreinte: ") + describeConversionError(firstConvertResult));
-      finishCommand();
-      return;
-    }
-
-    publishEvent("READY", activeRequestId, String(), "Levez le doigt puis recommencez calmement");
-    renderDisplay(DisplayIcon::Error, "Image refusee", "Levez puis replacez", "le doigt bien droit");
-    int removalRetry = waitForFingerRemoval(REMOVE_FINGER_TIMEOUT_MS);
-    if (removalRetry == SENSOR_CANCELLED) {
-      return;
-    }
-    if (removalRetry != FINGERPRINT_OK) {
-      publishSensorError("Le doigt n'a pas ete retire a temps avant le nouvel essai");
-      finishCommand();
-      return;
-    }
+    firstTemplateReady = true;
+    publishEvent("IMAGE_CAPTURED", activeRequestId, String(), "Image d'empreinte capturee avec succes");
+    break;
   }
 
   if (!firstTemplateReady) {
-    publishSensorError("La premiere empreinte n'a pas pu etre preparee");
-    finishCommand();
-    return;
-  }
-  showCaptureSuccess("Capture 1 validee", "Retirez le doigt");
-
-  publishEvent("READY", activeRequestId, String(), "Retirez le doigt puis replacez-le avec un angle legerement different");
-  renderDisplay(DisplayIcon::Info, "Enrolement", "Retirez le doigt", "puis inclinez-le un peu");
-  int removalResult = waitForFingerRemoval(REMOVE_FINGER_TIMEOUT_MS);
-  logSensorStep("enroll:between-captures:removal-result", String(removalResult));
-  if (removalResult == SENSOR_CANCELLED) {
-    return;
-  }
-  if (removalResult != FINGERPRINT_OK) {
-    publishSensorError("Le doigt n'a pas ete retire a temps");
+    publishSensorError("L'empreinte n'a pas pu etre preparee");
     finishCommand();
     return;
   }
 
-  bool secondTemplateReady = false;
-  for (uint8_t attempt = 1; attempt <= ENROLL_CONVERT_RETRIES; ++attempt) {
-    logSensorStep("enroll:second-capture:prompt", String("attempt=") + attempt);
-    publishEvent(
-      "READY",
-      activeRequestId,
-      String(),
-      attempt == 1
-        ? "Replacez le meme doigt avec un angle legerement different"
-        : "Replacez encore le meme doigt pour une capture plus stable"
-    );
-    renderDisplay(
-      DisplayIcon::Fingerprint,
-      "Enrolement",
-      "Replacez le meme doigt",
-      attempt == 1 ? "legerement incline" : "sans bouger"
-    );
-    int secondImage = waitForFingerImage(FINGER_WAIT_TIMEOUT_MS, true);
-    logSensorStep("enroll:second-capture:image-result", String(secondImage));
-    if (secondImage == SENSOR_CANCELLED) {
-      return;
-    }
-    if (secondImage == SENSOR_TIMEOUT) {
-      publishSensorError("Temps d'attente depasse pour la deuxieme capture");
-      finishCommand();
-      return;
-    }
-    if (secondImage != FINGERPRINT_OK) {
-      publishSensorError(String("Impossible de capturer la deuxieme image: ") + describeCaptureError(secondImage));
-      finishCommand();
-      return;
+  bool fingerRemoved = false;
+  for (uint8_t attempt = 1; attempt <= ENROLL_VERIFY_RETRIES; ++attempt) {
+    if (attempt == 1) {
+      renderDisplay(DisplayIcon::Info, "Enrolement", "Retirez le doigt", "puis replacez-le");
+    } else {
+      renderDisplay(DisplayIcon::Info, "Enrolement", "Retirez completement", "le doigt maintenant");
     }
 
-    uint8_t secondConvertResult = finger.image2Tz(2);
-    logSensorStep("enroll:second-capture:convert-result", String(secondConvertResult));
-    if (secondConvertResult == FINGERPRINT_OK) {
-      secondTemplateReady = true;
+    int removalResult = waitForFingerRemoval(ENROLL_REMOVE_TIMEOUT_MS, 1);
+    if (removalResult == SENSOR_CANCELLED) {
+      return;
+    }
+    if (removalResult == FINGERPRINT_OK) {
+      fingerRemoved = true;
       break;
     }
-
-    if (attempt == ENROLL_CONVERT_RETRIES) {
-      publishSensorError(String("Impossible d'extraire la deuxieme empreinte: ") + describeConversionError(secondConvertResult));
-      finishCommand();
-      return;
-    }
-
-    publishEvent("READY", activeRequestId, String(), "Levez le doigt puis replacez-le avec une meilleure pression");
-    renderDisplay(DisplayIcon::Error, "Image refusee", "Levez puis replacez", "le doigt plus a plat");
-    int removalRetry = waitForFingerRemoval(REMOVE_FINGER_TIMEOUT_MS);
-    if (removalRetry == SENSOR_CANCELLED) {
-      return;
-    }
-    if (removalRetry != FINGERPRINT_OK) {
-      publishSensorError("Le doigt n'a pas ete retire a temps avant le second nouvel essai");
-      finishCommand();
-      return;
-    }
   }
 
-  if (!secondTemplateReady) {
-    publishSensorError("La deuxieme empreinte n'a pas pu etre preparee");
+  if (!fingerRemoved) {
+    publishSensorError("Retrait du doigt non detecte pour l'enrolement");
     finishCommand();
     return;
   }
-  showCaptureSuccess("Capture 2 validee", "Creation du modele");
 
+  renderDisplay(DisplayIcon::Fingerprint, "Enrolement", "Replacez le doigt", "comme avant");
+  int secondCaptureResult = waitForFingerImage(
+    FINGER_WAIT_TIMEOUT_MS,
+    false,
+    ENROLL_FINGER_PRESENCE_CONFIRMATION_COUNT,
+    ENROLL_FINGER_PRESENCE_CONFIRMATION_WINDOW_MS
+  );
+  logSensorStep("enroll:second-capture:image-result", String(secondCaptureResult));
+  if (secondCaptureResult == SENSOR_CANCELLED) {
+    return;
+  }
+  if (secondCaptureResult == SENSOR_TIMEOUT) {
+    publishSensorError("Temps d'attente depasse pour la seconde capture de l'empreinte");
+    finishCommand();
+    return;
+  }
+  if (secondCaptureResult != FINGERPRINT_OK) {
+    publishSensorError(String("Impossible de capturer la seconde image de l'empreinte: ") + describeCaptureError(secondCaptureResult));
+    finishCommand();
+    return;
+  }
+
+  fingerprintSerial.listen();
+  holdActivitySignal();
+  uint8_t secondConvertResult = finger.image2Tz(2);
+  logSensorStep("enroll:second-capture:convert-buffer-2", String(secondConvertResult));
+  if (secondConvertResult != FINGERPRINT_OK) {
+    publishSensorError(String("Impossible de preparer la seconde empreinte: ") + describeConversionError(secondConvertResult));
+    finishCommand();
+    return;
+  }
+
+  showCaptureSuccess("Captures valides", "Creation du modele");
+
+  fingerprintSerial.listen();
+  holdActivitySignal();
   if (finger.createModel() != FINGERPRINT_OK) {
     logSensorStep("enroll:create-model", "failed");
-    publishSensorError("La fusion des captures a echoue. Recommencez l'enrolement");
+    publishSensorError("La preparation du modele d'empreinte a echoue. Recommencez l'enrolement");
     finishCommand();
     return;
   }
   logSensorStep("enroll:create-model", "ok");
 
+  fingerprintSerial.listen();
+  holdActivitySignal();
   if (finger.storeModel(slotId) != FINGERPRINT_OK) {
     logSensorStep("enroll:store-model", String("failed slot=") + slotId);
     publishSensorError("Impossible d'enregistrer le modele d'empreinte dans le capteur");
@@ -837,104 +1094,16 @@ void handleEnrollCommand() {
   }
   logSensorStep("enroll:store-model", String("ok slot=") + slotId);
 
-  publishEvent("READY", activeRequestId, String(), "Retirez le doigt pour lancer la verification finale");
-  renderDisplay(DisplayIcon::Info, "Verification", "Retirez le doigt", "pour le test final");
-  int finalRemovalResult = waitForFingerRemoval(REMOVE_FINGER_TIMEOUT_MS);
-  logSensorStep("enroll:final-removal-result", String(finalRemovalResult));
-  if (finalRemovalResult == SENSOR_CANCELLED) {
-    discardEnrollmentSlot(slotId);
-    return;
-  }
-  if (finalRemovalResult != FINGERPRINT_OK) {
-    discardEnrollmentSlot(slotId);
-    publishSensorError("Le doigt n'a pas ete retire a temps avant la verification finale");
+  String templateBase64;
+  if (!exportFingerprintTemplateBase64(slotId, templateBase64)) {
+    publishSensorError("Le template biométrique n'a pas pu être exporté depuis le capteur");
     finishCommand();
     return;
   }
 
-  for (uint8_t attempt = 1; attempt <= ENROLL_VERIFY_RETRIES; ++attempt) {
-    logSensorStep("enroll:verify:prompt", String("attempt=") + attempt);
-    publishEvent(
-      "READY",
-      activeRequestId,
-      String(),
-      attempt == 1
-        ? "Replacez le meme doigt avec une orientation naturelle pour verifier l'enrolement"
-        : "Ajustez legerement l'angle du doigt pour valider la reconnaissance"
-    );
-    renderDisplay(
-      DisplayIcon::Fingerprint,
-      "Verification",
-      "Replacez le meme doigt",
-      attempt == 1 ? "position naturelle" : "angle legerement change"
-    );
-
-    int verifyImage = waitForFingerImage(FINGER_WAIT_TIMEOUT_MS, true);
-    logSensorStep("enroll:verify:image-result", String(verifyImage));
-    if (verifyImage == SENSOR_CANCELLED) {
-      discardEnrollmentSlot(slotId);
-      return;
-    }
-    if (verifyImage == SENSOR_TIMEOUT) {
-      discardEnrollmentSlot(slotId);
-      publishSensorError("Temps d'attente depasse pendant la verification finale");
-      finishCommand();
-      return;
-    }
-    if (verifyImage != FINGERPRINT_OK) {
-      if (attempt == ENROLL_VERIFY_RETRIES) {
-        discardEnrollmentSlot(slotId);
-        publishSensorError(String("Verification finale impossible: ") + describeCaptureError(verifyImage));
-        finishCommand();
-        return;
-      }
-      continue;
-    }
-
-    uint8_t verifyConvertResult = finger.image2Tz(1);
-    logSensorStep("enroll:verify:convert-result", String(verifyConvertResult));
-    if (verifyConvertResult != FINGERPRINT_OK) {
-      if (attempt == ENROLL_VERIFY_RETRIES) {
-        discardEnrollmentSlot(slotId);
-        publishSensorError(String("Verification finale impossible: ") + describeConversionError(verifyConvertResult));
-        finishCommand();
-        return;
-      }
-
-      renderDisplay(DisplayIcon::Error, "Verification", "Image trop faible", "Reajustez le doigt");
-      continue;
-    }
-
-    uint8_t verifySearchResult = finger.fingerFastSearch();
-    logSensorStep("enroll:verify:search-result", String(verifySearchResult) + " | fingerID=" + finger.fingerID);
-    if (verifySearchResult == FINGERPRINT_OK && finger.fingerID == slotId) {
-      publishEvent("ENROLLED", activeRequestId, formatFingerprintId(slotId), "Empreinte enrolee et verifiee");
-      successSignalArmed = true;
-      showCaptureSuccess("Empreinte validee", "Reconnaissance confirmee");
-      finishCommand();
-      return;
-    }
-
-    if (attempt < ENROLL_VERIFY_RETRIES) {
-      renderDisplay(DisplayIcon::Info, "Verification", "Changez un peu l'angle", "et recommencez");
-      int verifyRemoval = waitForFingerRemoval(REMOVE_FINGER_TIMEOUT_MS);
-      if (verifyRemoval == SENSOR_CANCELLED) {
-        discardEnrollmentSlot(slotId);
-        return;
-      }
-      if (verifyRemoval != FINGERPRINT_OK) {
-        discardEnrollmentSlot(slotId);
-        publishSensorError("Le doigt n'a pas ete retire a temps pendant la verification");
-        finishCommand();
-        return;
-      }
-      delay(SCAN_RETRY_DELAY_MS);
-      continue;
-    }
-  }
-
-  discardEnrollmentSlot(slotId);
-  publishSensorError("Le modele enregistre n'a pas pu etre verifie. Recommencez avec le doigt bien centre puis legerement incline");
+  publishEvent("ENROLLED", activeRequestId, formatFingerprintId(slotId), "Template biométrique enregistré avec succès", templateBase64);
+  successSignalArmed = true;
+  showCaptureSuccess("Empreinte validee", "Enregistrement OK");
   finishCommand();
 }
 
@@ -962,7 +1131,6 @@ void processPendingCommand() {
   activeCommandName = pendingCommand.command;
   pendingCommand.queued = false;
   cancelRequested = false;
-  publishStatus("BUSY", activeCommandName.c_str());
 
   if (activeCommandName == "SCAN") {
     handleScanCommand();
@@ -1047,12 +1215,9 @@ void setupTopics() {
 }
 
 void setupFingerprintSensor() {
-  fingerprintSerial.begin(FINGER_SENSOR_BAUD);
-  finger.begin(FINGER_SENSOR_BAUD);
-
-  if (!finger.verifyPassword()) {
-    Serial.println("Fingerprint sensor not found");
-    showDisplayError("Capteur absent", "Verifiez le cablage");
+  if (!beginFingerprintSensor()) {
+    Serial.println("Fingerprint sensor init failed");
+    showDisplayError("Capteur indisponible", "Verifiez RX/TX et baud");
     while (true) {
       delay(1000);
     }
@@ -1076,7 +1241,7 @@ void setup() {
   setupFingerprintSensor();
 
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
-  mqttClient.setBufferSize(512);
+  mqttClient.setBufferSize(MQTT_EVENT_BUFFER_SIZE);
   mqttClient.setCallback(mqttCallback);
 }
 

@@ -1,5 +1,5 @@
 import { normalizeFingerprintId } from './utils';
-import { serialSensor } from './serialSensor';
+import { serialSensor, type EnrollmentScanResult } from './serialSensor';
 
 interface ScanFingerprintOptions {
   mode?: 'enrollment' | 'attendance';
@@ -85,6 +85,24 @@ export async function scanFingerprintFromSensor(options: ScanFingerprintOptions 
   const mode = options.mode ?? 'attendance';
   const fingerprintId = await serialSensor.scan(mode);
   return normalizeFingerprintId(fingerprintId);
+}
+
+export async function enrollFingerprintFromSensor(): Promise<EnrollmentScanResult> {
+  if (typeof window === 'undefined') {
+    throw new Error('Capteur biométrique indisponible dans cet environnement.');
+  }
+
+  if (!serialSensor.isConnected) {
+    throw new Error(
+      'Capteur introuvable. Vérifiez qu\'il est allumé, connecté au même réseau que le système avant de scanner.'
+    );
+  }
+
+  const result = await serialSensor.enroll();
+  return {
+    fingerprintId: normalizeFingerprintId(result.fingerprintId),
+    fingerprintTemplateBase64: result.fingerprintTemplateBase64,
+  };
 }
 
 export function getBiometricErrorMessage(error: unknown): string {

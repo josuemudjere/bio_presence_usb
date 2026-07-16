@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Fingerprint, Loader2, LogOut, ScanSearch } from 'lucide-react';
+import { AlertTriangle, BriefcaseBusiness, CheckCircle2, Fingerprint, HeartPulse, Loader2, LogOut, ScanSearch, Users } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { ATTENDANCE_WINDOW_CLOSED_MESSAGE } from '@/const';
 import { loadCourseSettings, loadStudents, type CourseSettings, type DepartureReason, type Student } from '@/lib/adminData';
-import { fetchStudents, saveDepartureJustification, scanAttendance } from '@/lib/adminApi';
+import { createManualAttendance, fetchStudents, saveDepartureJustification, scanAttendance } from '@/lib/adminApi';
 import { getBiometricErrorMessage, notifyRejectedFingerprintScan, scanFingerprintFromSensor } from '@/lib/biometricSensor';
 import { serialSensor, type ConnectionState } from '@/lib/serialSensor';
 import { hasFingerprintId } from '@/lib/utils';
@@ -26,11 +28,37 @@ type SensorState = 'idle' | 'loading' | 'success' | 'error';
 const RESULT_DISPLAY_DURATION_MS = 2 * 60 * 1000;
 const AUTO_QUEUE_SUCCESS_COOLDOWN_MS = 1200;
 const AUTO_QUEUE_ERROR_COOLDOWN_MS = 3200;
+const MAX_SCAN_FAILURES_BEFORE_MANUAL = 3;
+const ATTENDANCE_GRACE_PERIOD_MINUTES = 20;
 const DEPARTURE_REASON_LABELS: Record<DepartureReason, string> = {
   maladie: 'Maladie',
   'urgence-familiale': 'Urgence familiale',
   'urgence-travail': 'Urgence au travail',
 };
+
+function parseTimeToMinutes(value?: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const [hours, minutes] = value.split(':').map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null;
+  }
+
+  return (hours * 60) + minutes;
+}
+
+function isWithinAttendanceWindow(startTime?: string | null, endTime?: string | null, now = new Date()): boolean {
+  const startMinutes = parseTimeToMinutes(startTime);
+  const endMinutes = parseTimeToMinutes(endTime);
+  if (startMinutes == null || endMinutes == null) {
+    return false;
+  }
+
+  const currentMinutes = (now.getHours() * 60) + now.getMinutes();
+  return currentMinutes >= startMinutes && currentMinutes <= endMinutes + ATTENDANCE_GRACE_PERIOD_MINUTES;
+}
 
 function getAvatarUrl(studentName: string): string {
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(studentName)}&background=0f172a&color=ffffff&size=256`;
@@ -49,13 +77,26 @@ function speakText(text: string): void {
   window.speechSynthesis.speak(utterance);
 }
 
+function resolveSpokenFirstName(fullName: string): string {
+  const parts = fullName
+    .split(' ')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+
+  if (parts.length === 0) {
+    return 'étudiant';
+  }
+
+  return parts[parts.length - 1];
+}
+
 function speakWelcome(fullName: string): void {
-  const firstName = fullName.split(' ')[0];
+  const firstName = resolveSpokenFirstName(fullName);
   speakText(`Bienvenue, ${firstName}`);
 }
 
 function speakGoodbye(fullName: string): void {
-  const firstName = fullName.split(' ')[0];
+  const firstName = resolveSpokenFirstName(fullName);
   speakText(`Au revoir, ${firstName}`);
 }
 
@@ -95,6 +136,12 @@ export default function AdminSensor() {
   const [result, setResult] = useState<SensorResult | null>(null);
   const [autoQueueEnabled, setAutoQueueEnabled] = useState(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>(() => serialSensor.state);
+  const [scanFailureCount, setScanFailureCount] = useState(0);
+  const [manualEntryOpen, setManualEntryOpen] = useState(false);
+  const [manualMatricule, setManualMatricule] = useState('');
+  const [manualEntryError, setManualEntryError] = useState('');
+  const [manualEntrySubmitting, setManualEntrySubmitting] = useState(false);
+  const [clockTick, setClockTick] = useState(() => Date.now());
   const scanInProgressRef = useRef(false);
   const resultTimeoutRef = useRef<number | null>(null);
   const pageActiveRef = useRef(true);
@@ -160,10 +207,23 @@ export default function AdminSensor() {
     };
   }, []);
 
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setClockTick(Date.now());
+    }, 30000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
   const todayLabel = useMemo(
     () => new Intl.DateTimeFormat('fr-FR', { dateStyle: 'full', timeStyle: 'short' }).format(new Date()),
     [sensorState, result]
   );
+  const isCourseScheduleConfigured = Boolean(courseSettings.startTime && courseSettings.endTime);
+  const isPointageWindowOpen = isWithinAttendanceWindow(courseSettings.startTime, courseSettings.endTime, new Date(clockTick));
+  const canScan = connectionState === 'connected' && isCourseScheduleConfigured && isPointageWindowOpen;
 
   useEffect(() => {
     let mounted = true;
@@ -193,8 +253,104 @@ export default function AdminSensor() {
     };
   }, []);
 
+  const completeManualAttendance = async (student: Student) => {
+    if (!isPointageWindowOpen) {
+      throw new Error(ATTENDANCE_WINDOW_CLOSED_MESSAGE);
+    }
+
+    const attendance = await createManualAttendance({
+      studentId: student.id,
+      coursId: student.coursId ?? undefined,
+    });
+
+    const studentName = formatStudentFullName(student);
+    const attendanceType: 'entry' | 'exit' = attendance.checkOut ? 'exit' : 'entry';
+    const checkOutTime = attendance.checkOut ?? '';
+
+    setResult({
+      studentName,
+      matricule: attendance.matricule,
+      department: attendance.department,
+      photoUrl: attendance.photoUrl || resolveStudentPhoto(student, studentName),
+      scannedAtLabel: formatScanTimestamp(new Date()),
+      attendanceType,
+      attendanceId: attendance.id,
+      studentId: attendance.studentId,
+      checkOutTime,
+    });
+    setSensorState('success');
+    setErrorMessage('');
+    setScanFailureCount(0);
+    setManualMatricule('');
+    setManualEntryError('');
+    setManualEntryOpen(false);
+
+    if (attendanceType === 'exit' && courseSettings.endTime && checkOutTime && checkOutTime < courseSettings.endTime) {
+      setEarlyDeparturePending({
+        attendanceId: attendance.id,
+        studentId: attendance.studentId,
+        studentName,
+        photoUrl: attendance.photoUrl || resolveStudentPhoto(student, studentName),
+        checkOutTime,
+      });
+      setSelectedReason(null);
+    }
+
+    if (attendanceType === 'exit') {
+      speakGoodbye(studentName);
+    } else {
+      speakWelcome(studentName);
+    }
+  };
+
+  const handleManualEntrySubmit = async () => {
+    const normalizedMatricule = manualMatricule.trim().toUpperCase();
+    if (!normalizedMatricule) {
+      setManualEntryError('Saisissez le matricule de l\'étudiant.');
+      return;
+    }
+
+    const matchedStudent = students.find(
+      (student) => student.matricule.trim().toUpperCase() === normalizedMatricule
+    );
+
+    if (!matchedStudent) {
+      setManualEntryError('Aucun étudiant ne correspond à ce matricule.');
+      return;
+    }
+
+    if (!isApiReady) {
+      setManualEntryError('La saisie manuelle nécessite une connexion au backend.');
+      return;
+    }
+
+    setManualEntrySubmitting(true);
+    try {
+      await completeManualAttendance(matchedStudent);
+    } catch (error) {
+      setManualEntryError(normalizeErrorMessage(error));
+      setSensorState('error');
+    } finally {
+      setManualEntrySubmitting(false);
+    }
+  };
+
   const handleScan = async () => {
     if (scanInProgressRef.current) {
+      return;
+    }
+
+    if (!isCourseScheduleConfigured) {
+      setSensorState('error');
+      setErrorMessage('Configurez d\'abord l\'heure de début et de fin du cours avant le pointage.');
+      setResult(null);
+      return;
+    }
+
+    if (!isPointageWindowOpen) {
+      setSensorState('error');
+      setErrorMessage(ATTENDANCE_WINDOW_CLOSED_MESSAGE);
+      setResult(null);
       return;
     }
 
@@ -226,7 +382,7 @@ export default function AdminSensor() {
     try {
       const scanDetectedAt = new Date();
 
-      // Bloque jusquà ce que le doigt soit détecté sur le capteur
+      // La promesse se résout quand l'empreinte a déjà été reconnue par le capteur.
       const scannedFingerprintId = await scanFingerprintFromSensor({
         mode: 'attendance',
       });
@@ -236,13 +392,13 @@ export default function AdminSensor() {
         return;
       }
 
-      // Doigt détecté : on passe en traitement
+      // Le capteur a fini sa lecture, il ne reste plus qu'à valider la présence côté application.
       setIsListening(false);
       setSensorState('loading');
 
       if (!isApiReady) {
         const matchedStudent = students.find(
-          (student) => hasFingerprintId(student.fingerprintTemplateId, scannedFingerprintId)
+          (student) => hasFingerprintId(student.fingerprintTemplateIds ?? student.fingerprintTemplateId, scannedFingerprintId)
         );
 
         if (!matchedStudent) {
@@ -267,6 +423,7 @@ export default function AdminSensor() {
       if (!pageActiveRef.current) {
         return;
       }
+      setScanFailureCount(0);
       const matchedStudent = students.find((student) => student.id === scanResponse.attendance.studentId);
       const studentName = matchedStudent ? formatStudentFullName(matchedStudent) : scanResponse.attendance.studentName;
 
@@ -314,7 +471,16 @@ export default function AdminSensor() {
 
       setIsListening(false);
       setSensorState('error');
-      setErrorMessage(normalizeErrorMessage(error));
+      const normalizedMessage = normalizeErrorMessage(error);
+      const nextFailureCount = scanFailureCount + 1;
+      setErrorMessage(normalizedMessage);
+      setScanFailureCount(nextFailureCount);
+      if (nextFailureCount >= MAX_SCAN_FAILURES_BEFORE_MANUAL) {
+        setAutoQueueEnabled(false);
+        setManualEntryError('');
+        setManualMatricule('');
+        setManualEntryOpen(true);
+      }
     } finally {
       scanInProgressRef.current = false;
     }
@@ -344,7 +510,7 @@ export default function AdminSensor() {
 
   useEffect(() => {
     // AutoQueue uniquement si le capteur série est connecté
-    if (!autoQueueEnabled || connectionState !== 'connected' || sensorState !== 'idle') {
+    if (!autoQueueEnabled || !canScan || sensorState !== 'idle') {
       return;
     }
 
@@ -355,7 +521,7 @@ export default function AdminSensor() {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [autoQueueEnabled, sensorState, students, isApiReady, connectionState]);
+  }, [autoQueueEnabled, sensorState, students, isApiReady, canScan]);
 
   useEffect(() => {
     if (!autoQueueEnabled || (sensorState !== 'success' && sensorState !== 'error')) {
@@ -365,7 +531,13 @@ export default function AdminSensor() {
     const normalizedError = errorMessage.toLowerCase();
     const skipRetry =
       sensorState === 'error' &&
-      (normalizedError.includes('aucune empreinte') || normalizedError.includes('annul') || normalizedError.includes('cancel'));
+      (
+        normalizedError.includes('aucune empreinte') ||
+        normalizedError.includes('annul') ||
+        normalizedError.includes('cancel') ||
+        manualEntryOpen ||
+        scanFailureCount >= MAX_SCAN_FAILURES_BEFORE_MANUAL
+      );
 
     if (skipRetry) {
       return;
@@ -382,7 +554,7 @@ export default function AdminSensor() {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [autoQueueEnabled, sensorState, errorMessage]);
+  }, [autoQueueEnabled, sensorState, errorMessage, manualEntryOpen, scanFailureCount]);
 
   return (
     <div className="flex">
@@ -439,20 +611,34 @@ export default function AdminSensor() {
                   {sensorState === 'idle' && !isListening && connectionState !== 'connected' && (
                     <p className="text-base text-slate-400">Connectez le capteur pour scanner</p>
                   )}
-                  {sensorState === 'idle' && !isListening && connectionState === 'connected' && <p className="text-base text-slate-700">En attente du doigt sur le capteur</p>}
+                  {sensorState === 'idle' && !isListening && connectionState === 'connected' && !isCourseScheduleConfigured && (
+                    <p className="text-base font-medium text-amber-700">Configurez d'abord l'horaire du cours avant le pointage.</p>
+                  )}
+                  {sensorState === 'idle' && !isListening && connectionState === 'connected' && isCourseScheduleConfigured && !isPointageWindowOpen && (
+                    <p className="text-base font-medium text-amber-700">{ATTENDANCE_WINDOW_CLOSED_MESSAGE}</p>
+                  )}
+                  {sensorState === 'idle' && !isListening && canScan && <p className="text-base text-slate-700">En attente du doigt sur le capteur</p>}
                   {sensorState === 'idle' && isListening && <p className="text-base font-medium text-emerald-700 animate-pulse">Posez votre doigt sur le capteur...</p>}
-                  {sensorState === 'loading' && <p className="text-base font-medium text-emerald-700">Scannage en cours...</p>}
+                  {sensorState === 'loading' && <p className="text-base font-medium text-emerald-700">Empreinte reconnue. Validation de la présence en cours...</p>}
                   {sensorState === 'error' && <p className="text-base font-medium text-rose-700">{errorMessage || 'Empreinte non reconnue.'}</p>}
                   {sensorState === 'success' && <p className="text-base font-medium text-emerald-700">Empreinte reconnue avec succès</p>}
                 </div>
 
                 <Button
                   onClick={handleScan}
-                  disabled={sensorState === 'loading' || connectionState !== 'connected'}
+                  disabled={sensorState === 'loading' || !canScan}
                   className="rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40"
                 >
                   <ScanSearch className="mr-2 h-4 w-4" />
-                  {connectionState !== 'connected' ? 'Capteur non connecté' : sensorState === 'loading' ? 'Scan en cours...' : 'Scanner maintenant'}
+                  {connectionState !== 'connected'
+                    ? 'Capteur non connecté'
+                    : !isCourseScheduleConfigured
+                    ? 'Horaire non configuré'
+                    : !isPointageWindowOpen
+                    ? 'Pointage hors créneau'
+                    : sensorState === 'loading'
+                    ? 'Validation en cours...'
+                    : 'Scanner maintenant'}
                 </Button>
 
                 {connectionState === 'connected' && (
@@ -463,6 +649,12 @@ export default function AdminSensor() {
                   >
                     {autoQueueEnabled ? 'Mode file actif (auto-scan après chaque résultat)' : 'Activer le mode file automatique'}
                   </button>
+                )}
+
+                {sensorState === 'error' && scanFailureCount > 0 && (
+                  <p className="text-xs text-slate-500">
+                    Échecs de scan consécutifs: {scanFailureCount}/{MAX_SCAN_FAILURES_BEFORE_MANUAL}
+                  </p>
                 )}
               </div>
 
@@ -536,7 +728,6 @@ export default function AdminSensor() {
                       </span>
 
                       <p className="text-sm text-slate-500">
-                        Profil affiché pendant 2 minutes ou jusqu’au prochain pointage.
                       </p>
 
                       {autoQueueEnabled && (
@@ -563,9 +754,8 @@ export default function AdminSensor() {
           if (!open) handleConfirmDeparture(null); // fermé sans raison = absent
         }}
       >
-        <DialogContent className="max-w-sm rounded-2xl border border-amber-200 bg-white p-0 overflow-hidden shadow-2xl">
-          {/* En-tête amber */}
-          <div className="bg-gradient-to-br from-amber-500 to-orange-500 px-6 pt-6 pb-4 text-white text-center">
+        <DialogContent className="max-w-sm overflow-hidden rounded-2xl border border-blue-200 bg-white p-0 shadow-2xl">
+          <div className="bg-gradient-to-br from-blue-700 via-blue-600 to-cyan-500 px-6 pt-6 pb-4 text-center text-white">
             <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white/20">
               <LogOut className="h-7 w-7" />
             </div>
@@ -580,9 +770,9 @@ export default function AdminSensor() {
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Motif du départ</p>
 
             {([
-              { value: 'maladie' as DepartureReason, label: 'Maladie', icon: '🏥' },
-              { value: 'urgence-familiale' as DepartureReason, label: 'Urgence familiale', icon: '👨‍👩‍👧' },
-              { value: 'urgence-travail' as DepartureReason, label: 'Urgence au travail', icon: '💼' },
+              { value: 'maladie' as DepartureReason, label: 'Maladie', icon: HeartPulse },
+              { value: 'urgence-familiale' as DepartureReason, label: 'Urgence familiale', icon: Users },
+              { value: 'urgence-travail' as DepartureReason, label: 'Urgence au travail', icon: BriefcaseBusiness },
             ] as const).map((opt) => (
               <button
                 key={opt.value}
@@ -590,11 +780,15 @@ export default function AdminSensor() {
                 onClick={() => setSelectedReason(opt.value)}
                 className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left text-sm font-medium transition-all ${
                   selectedReason === opt.value
-                    ? 'border-amber-400 bg-amber-50 text-amber-900'
-                    : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-amber-300 hover:bg-amber-50/50'
+                    ? 'border-blue-400 bg-blue-50 text-blue-900 shadow-sm'
+                    : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-300 hover:bg-blue-50/60'
                 }`}
               >
-                <span className="text-xl">{opt.icon}</span>
+                <span className={`flex h-10 w-10 items-center justify-center rounded-full ${
+                  selectedReason === opt.value ? 'bg-blue-100 text-blue-700' : 'bg-white text-slate-500'
+                }`}>
+                  <opt.icon className="h-5 w-5" />
+                </span>
                 {opt.label}
               </button>
             ))}
@@ -603,16 +797,80 @@ export default function AdminSensor() {
               <Button
                 onClick={() => handleConfirmDeparture(selectedReason)}
                 disabled={selectedReason === null}
-                className="flex-1 bg-amber-500 hover:bg-amber-600 text-white rounded-xl disabled:opacity-40"
+                className="flex-1 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40"
               >
                 Confirmer le motif
               </Button>
               <Button
                 variant="outline"
                 onClick={() => handleConfirmDeparture(null)}
-                className="flex-1 border-rose-300 text-rose-700 hover:bg-rose-50 rounded-xl"
+                className="flex-1 rounded-xl border-blue-200 text-blue-700 hover:bg-blue-50"
               >
                 Marquer absent
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={manualEntryOpen} onOpenChange={setManualEntryOpen}>
+        <DialogContent className="max-w-md rounded-2xl border border-slate-200 bg-white p-0 overflow-hidden shadow-2xl">
+          <div className="bg-gradient-to-br from-slate-900 to-slate-700 px-6 pt-6 pb-4 text-white text-center">
+            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white/10">
+              <AlertTriangle className="h-7 w-7" />
+            </div>
+            <DialogTitle className="text-lg font-bold">Saisie manuelle du matricule</DialogTitle>
+            <p className="mt-1 text-sm text-white/80">
+              Après trois refus de scan, entrez le matricule de l'étudiant pour poursuivre le pointage.
+            </p>
+          </div>
+
+          <div className="space-y-4 px-6 py-5">
+            <div className="space-y-2">
+              <label htmlFor="admin-manual-matricule" className="text-sm font-medium text-slate-700">
+                Matricule de l'étudiant
+              </label>
+              <Input
+                id="admin-manual-matricule"
+                value={manualMatricule}
+                onChange={(event) => {
+                  setManualMatricule(event.target.value.toUpperCase());
+                  if (manualEntryError) {
+                    setManualEntryError('');
+                  }
+                }}
+                placeholder="Ex: 22A1234"
+                autoComplete="off"
+                disabled={manualEntrySubmitting}
+              />
+            </div>
+
+            {manualEntryError && (
+              <p className="text-sm font-medium text-rose-700">{manualEntryError}</p>
+            )}
+
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50"
+                disabled={manualEntrySubmitting}
+                onClick={() => {
+                  setManualEntryOpen(false);
+                  setManualEntryError('');
+                  setManualMatricule('');
+                  setScanFailureCount(0);
+                }}
+              >
+                Annuler
+              </Button>
+              <Button
+                type="button"
+                className="flex-1 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40"
+                disabled={manualEntrySubmitting}
+                onClick={() => { void handleManualEntrySubmit(); }}
+              >
+                {manualEntrySubmitting ? 'Validation...' : 'Valider le matricule'}
               </Button>
             </div>
           </div>

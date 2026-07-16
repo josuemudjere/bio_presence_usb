@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Fingerprint, Loader2, LogOut, ScanSearch } from 'lucide-react';
+import { AlertTriangle, BriefcaseBusiness, CheckCircle2, Fingerprint, HeartPulse, Loader2, LogOut, ScanSearch, Users } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ATTENDANCE_WINDOW_CLOSED_MESSAGE } from '@/const';
 import { loadCourseSettings, type Cours, type CourseSettings, type DepartureReason, type Student } from '@/lib/adminData';
-import { fetchCours, fetchStudentsForCours, saveDepartureJustification, scanAttendanceForCours } from '@/lib/adminApi';
+import { createManualAttendance, fetchCours, fetchStudentsForCours, saveDepartureJustification, scanAttendanceForCours } from '@/lib/adminApi';
 import { getBiometricErrorMessage, notifyRejectedFingerprintScan, scanFingerprintFromSensor } from '@/lib/biometricSensor';
 import { serialSensor, type ConnectionState } from '@/lib/serialSensor';
 import { hasFingerprintId } from '@/lib/utils';
@@ -28,12 +30,39 @@ type SensorState = 'idle' | 'loading' | 'success' | 'error';
 const RESULT_DISPLAY_DURATION_MS = 60 * 1000;
 const AUTO_QUEUE_SUCCESS_COOLDOWN_MS = 1200;
 const AUTO_QUEUE_ERROR_COOLDOWN_MS = 3200;
+const MAX_SCAN_FAILURES_BEFORE_MANUAL = 3;
 const TEACHER_SELECTED_COURSE_KEY = 'biopresence_teacher_selected_course';
+const TEACHER_ROSTER_REFRESH_INTERVAL_MS = 15000;
+const ATTENDANCE_GRACE_PERIOD_MINUTES = 20;
 const DEPARTURE_REASON_LABELS: Record<DepartureReason, string> = {
   maladie: 'Maladie',
   'urgence-familiale': 'Urgence familiale',
   'urgence-travail': 'Urgence au travail',
 };
+
+function parseTimeToMinutes(value?: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const [hours, minutes] = value.split(':').map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null;
+  }
+
+  return (hours * 60) + minutes;
+}
+
+function isWithinAttendanceWindow(startTime?: string | null, endTime?: string | null, now = new Date()): boolean {
+  const startMinutes = parseTimeToMinutes(startTime);
+  const endMinutes = parseTimeToMinutes(endTime);
+  if (startMinutes == null || endMinutes == null) {
+    return false;
+  }
+
+  const currentMinutes = (now.getHours() * 60) + now.getMinutes();
+  return currentMinutes >= startMinutes && currentMinutes <= endMinutes + ATTENDANCE_GRACE_PERIOD_MINUTES;
+}
 
 function getAvatarUrl(studentName: string): string {
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(studentName)}&background=0f172a&color=ffffff&size=256`;
@@ -51,13 +80,26 @@ function speakText(text: string): void {
   window.speechSynthesis.speak(utterance);
 }
 
+function resolveSpokenFirstName(fullName: string): string {
+  const parts = fullName
+    .split(' ')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+
+  if (parts.length === 0) {
+    return 'étudiant';
+  }
+
+  return parts[parts.length - 1];
+}
+
 function speakWelcome(fullName: string): void {
-  const firstName = fullName.split(' ')[0];
+  const firstName = resolveSpokenFirstName(fullName);
   speakText(`Bienvenue, ${firstName}`);
 }
 
 function speakGoodbye(fullName: string): void {
-  const firstName = fullName.split(' ')[0];
+  const firstName = resolveSpokenFirstName(fullName);
   speakText(`Au revoir, ${firstName}`);
 }
 
@@ -102,12 +144,19 @@ export default function UtilisateurPresence() {
   const [result, setResult] = useState<SensorResult | null>(null);
   const [autoQueueEnabled, setAutoQueueEnabled] = useState(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>(() => serialSensor.state);
+  const [scanFailureCount, setScanFailureCount] = useState(0);
+  const [manualEntryOpen, setManualEntryOpen] = useState(false);
+  const [manualMatricule, setManualMatricule] = useState('');
+  const [manualEntryError, setManualEntryError] = useState('');
+  const [manualEntrySubmitting, setManualEntrySubmitting] = useState(false);
+  const [clockTick, setClockTick] = useState(() => Date.now());
   const scanInProgressRef = useRef(false);
   const resultTimeoutRef = useRef<number | null>(null);
   const pageActiveRef = useRef(true);
   const selectedCourse = assignedCourses.find((course) => course.id === selectedCoursId) ?? null;
   const isCourseScheduleConfigured = Boolean(selectedCourse?.heureDebut && selectedCourse?.heureFin);
-  const canScan = connectionState === 'connected' && Boolean(selectedCoursId) && isCourseScheduleConfigured;
+  const isPointageWindowOpen = isWithinAttendanceWindow(selectedCourse?.heureDebut, selectedCourse?.heureFin, new Date(clockTick));
+  const canScan = connectionState === 'connected' && Boolean(selectedCoursId) && isCourseScheduleConfigured && isPointageWindowOpen;
   const filteredStudents = useMemo(() => students, [students]);
 
   // Départ anticipé
@@ -173,6 +222,16 @@ export default function UtilisateurPresence() {
     };
   }, []);
 
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setClockTick(Date.now());
+    }, 30000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
   const todayLabel = useMemo(
     () => new Intl.DateTimeFormat('fr-FR', { dateStyle: 'full', timeStyle: 'short' }).format(new Date()),
     [sensorState, result]
@@ -182,6 +241,90 @@ export default function UtilisateurPresence() {
     : connectionState === 'connecting'
     ? 'Connexion au capteur en cours'
     : 'Capteur hors ligne';
+
+  const completeManualAttendance = async (student: Student) => {
+    if (!selectedCoursId) {
+      throw new Error('Sélectionnez d\'abord un cours.');
+    }
+
+    if (!isPointageWindowOpen) {
+      throw new Error(ATTENDANCE_WINDOW_CLOSED_MESSAGE);
+    }
+
+    const attendance = await createManualAttendance({
+      studentId: student.id,
+      coursId: selectedCoursId,
+    });
+
+    const studentName = formatStudentFullName(student);
+    const attendanceType: 'entry' | 'exit' = attendance.checkOut ? 'exit' : 'entry';
+    const checkOutTime = attendance.checkOut ?? '';
+
+    setResult({
+      studentName,
+      matricule: attendance.matricule,
+      department: attendance.department,
+      photoUrl: attendance.photoUrl || resolveStudentPhoto(student, studentName),
+      scannedAtLabel: formatScanTimestamp(new Date()),
+      attendanceType,
+      attendanceId: attendance.id,
+      studentId: attendance.studentId,
+      checkOutTime,
+    });
+    setSensorState('success');
+    setErrorMessage('');
+    setScanFailureCount(0);
+    setManualMatricule('');
+    setManualEntryError('');
+    setManualEntryOpen(false);
+
+    const selectedCourseEndTime = selectedCourse?.heureFin || courseSettings.endTime;
+    if (attendanceType === 'exit' && selectedCourseEndTime && checkOutTime && checkOutTime < selectedCourseEndTime) {
+      setEarlyDeparturePending({
+        attendanceId: attendance.id,
+        studentId: attendance.studentId,
+        studentName,
+        photoUrl: attendance.photoUrl || resolveStudentPhoto(student, studentName),
+        checkOutTime,
+      });
+      setSelectedReason(null);
+    }
+
+    if (attendanceType === 'exit') speakGoodbye(studentName);
+    else speakWelcome(studentName);
+  };
+
+  const handleManualEntrySubmit = async () => {
+    const normalizedMatricule = manualMatricule.trim().toUpperCase();
+    if (!normalizedMatricule) {
+      setManualEntryError('Saisissez le matricule de l\'étudiant.');
+      return;
+    }
+
+    const matchedStudent = filteredStudents.find(
+      (student) => student.matricule.trim().toUpperCase() === normalizedMatricule
+    );
+
+    if (!matchedStudent) {
+      setManualEntryError('Aucun étudiant ne correspond à ce matricule dans ce cours.');
+      return;
+    }
+
+    if (!isApiReady) {
+      setManualEntryError('La saisie manuelle nécessite une connexion au backend.');
+      return;
+    }
+
+    setManualEntrySubmitting(true);
+    try {
+      await completeManualAttendance(matchedStudent);
+    } catch (error) {
+      setManualEntryError(normalizeErrorMessage(error));
+      setSensorState('error');
+    } finally {
+      setManualEntrySubmitting(false);
+    }
+  };
 
   useEffect(() => {
     // Je mémorise le cours choisi pour éviter à l'enseignant de le re-sélectionner à chaque visite.
@@ -203,42 +346,78 @@ export default function UtilisateurPresence() {
     localStorage.setItem(TEACHER_SELECTED_COURSE_KEY, String(selectedCoursId));
   }, [selectedCoursId]);
 
+  const refreshTeacherRoster = async (mounted?: { current: boolean }) => {
+    try {
+      const apiCours = await fetchCours();
+      if (mounted && !mounted.current) return;
+
+      const filteredCourses = apiCours.filter((course) => assignedCourseIds.includes(course.id));
+      setAssignedCourses(filteredCourses);
+
+      const effectiveCoursId = selectedCoursId ?? filteredCourses[0]?.id ?? null;
+      if (effectiveCoursId != null) {
+        const apiStudents = await fetchStudentsForCours(effectiveCoursId);
+        if (mounted && !mounted.current) return;
+        setStudents(apiStudents);
+      } else {
+        setStudents([]);
+      }
+
+      setIsApiReady(true);
+    } catch {
+      if (mounted && !mounted.current) return;
+      setStudents([]);
+      setAssignedCourses([]);
+      setIsApiReady(false);
+    }
+  };
+
   useEffect(() => {
     // Je charge le catalogue enseignant, puis la liste des inscrits du cours sélectionné depuis la base.
-    let mounted = true;
-    const hydrate = async () => {
-      try {
-        const apiCours = await fetchCours();
-        if (!mounted) return;
+    const mounted = { current: true };
+    void refreshTeacherRoster(mounted);
+    return () => { mounted.current = false; };
+  }, [assignedCourseIds, selectedCoursId, user?.id]);
 
-        const filteredCourses = apiCours.filter((course) => assignedCourseIds.includes(course.id));
-        setAssignedCourses(filteredCourses);
-
-        const effectiveCoursId = selectedCoursId ?? filteredCourses[0]?.id ?? null;
-        if (effectiveCoursId != null) {
-          const apiStudents = await fetchStudentsForCours(effectiveCoursId);
-          if (!mounted) return;
-          setStudents(apiStudents);
-        } else {
-          setStudents([]);
-        }
-
-        setIsApiReady(true);
-      } catch {
-        if (!mounted) return;
-        setStudents([]);
-        setAssignedCourses([]);
-        setIsApiReady(false);
+  useEffect(() => {
+    // La liste enseignant se rafraîchit automatiquement pour intégrer les nouveaux enrôlements faits par l'administration.
+    const refreshRosterIfVisible = () => {
+      if (document.visibilityState !== 'visible') {
+        return;
       }
+
+      void refreshTeacherRoster();
     };
-    hydrate();
-    return () => { mounted = false; };
+
+    const intervalId = window.setInterval(refreshRosterIfVisible, TEACHER_ROSTER_REFRESH_INTERVAL_MS);
+    window.addEventListener('focus', refreshRosterIfVisible);
+    document.addEventListener('visibilitychange', refreshRosterIfVisible);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', refreshRosterIfVisible);
+      document.removeEventListener('visibilitychange', refreshRosterIfVisible);
+    };
   }, [assignedCourseIds, selectedCoursId, user?.id]);
 
   const handleScan = async () => {
     // Un seul scan à la fois pour éviter les doublons et les collisions de réponse capteur.
     if (scanInProgressRef.current) return;
     if (!selectedCoursId) return;
+
+    if (!isCourseScheduleConfigured) {
+      setSensorState('error');
+      setErrorMessage('Configurez d\'abord l\'heure de début et de fin du cours depuis Vue d\'ensemble.');
+      setResult(null);
+      return;
+    }
+
+    if (!isPointageWindowOpen) {
+      setSensorState('error');
+      setErrorMessage(ATTENDANCE_WINDOW_CLOSED_MESSAGE);
+      setResult(null);
+      return;
+    }
 
     scanInProgressRef.current = true;
     setIsListening(true);
@@ -266,7 +445,9 @@ export default function UtilisateurPresence() {
 
       if (!isApiReady) {
         // En mode local, je tente un matching simple sur les étudiants déjà chargés dans la page.
-        const matchedStudent = filteredStudents.find(s => hasFingerprintId(s.fingerprintTemplateId, scannedFingerprintId));
+        const matchedStudent = filteredStudents.find((student) =>
+          hasFingerprintId(student.fingerprintTemplateIds ?? student.fingerprintTemplateId, scannedFingerprintId)
+        );
         if (!matchedStudent) throw new Error('Empreinte non reconnue.');
         const fullName = formatStudentFullName(matchedStudent);
         setResult({
@@ -286,6 +467,7 @@ export default function UtilisateurPresence() {
       if (!pageActiveRef.current) {
         return;
       }
+      setScanFailureCount(0);
       const matchedStudent = filteredStudents.find(s => s.id === scanResponse.attendance.studentId);
       const studentName = matchedStudent ? formatStudentFullName(matchedStudent) : scanResponse.attendance.studentName;
       const attendanceType: 'entry' | 'exit' = scanResponse.attendance.checkOut ? 'exit' : 'entry';
@@ -330,7 +512,16 @@ export default function UtilisateurPresence() {
 
       setIsListening(false);
       setSensorState('error');
-      setErrorMessage(normalizeErrorMessage(error));
+      const normalizedMessage = normalizeErrorMessage(error);
+      const nextFailureCount = scanFailureCount + 1;
+      setErrorMessage(normalizedMessage);
+      setScanFailureCount(nextFailureCount);
+      if (nextFailureCount >= MAX_SCAN_FAILURES_BEFORE_MANUAL) {
+        setAutoQueueEnabled(false);
+        setManualEntryError('');
+        setManualMatricule('');
+        setManualEntryOpen(true);
+      }
     } finally {
       scanInProgressRef.current = false;
     }
@@ -361,10 +552,10 @@ export default function UtilisateurPresence() {
 
   useEffect(() => {
     // En mode file automatique, je relance discrètement un scan dès que l'écran redevient idle.
-    if (!autoQueueEnabled || connectionState !== 'connected' || sensorState !== 'idle') return;
+    if (!autoQueueEnabled || !canScan || sensorState !== 'idle') return;
     const timeoutId = window.setTimeout(() => { handleScan(); }, 250);
     return () => { window.clearTimeout(timeoutId); };
-  }, [autoQueueEnabled, sensorState, students, isApiReady, connectionState]);
+  }, [autoQueueEnabled, sensorState, students, isApiReady, canScan]);
 
   useEffect(() => {
     // Après succès ou erreur, je réarme l'écran avec un cooldown différent selon le résultat.
@@ -372,17 +563,23 @@ export default function UtilisateurPresence() {
     const normalizedError = errorMessage.toLowerCase();
     const skipRetry =
       sensorState === 'error' &&
-      (normalizedError.includes('aucune empreinte') || normalizedError.includes('annul') || normalizedError.includes('cancel'));
+      (
+        normalizedError.includes('aucune empreinte') ||
+        normalizedError.includes('annul') ||
+        normalizedError.includes('cancel') ||
+        manualEntryOpen ||
+        scanFailureCount >= MAX_SCAN_FAILURES_BEFORE_MANUAL
+      );
     if (skipRetry) return;
     const timeoutId = window.setTimeout(() => {
       setSensorState('idle');
-      setIsListening(connectionState === 'connected' && Boolean(selectedCoursId) && isCourseScheduleConfigured);
+      setIsListening(canScan);
       if (sensorState === 'error') {
         setErrorMessage('');
       }
     }, sensorState === 'success' ? AUTO_QUEUE_SUCCESS_COOLDOWN_MS : AUTO_QUEUE_ERROR_COOLDOWN_MS);
     return () => { window.clearTimeout(timeoutId); };
-  }, [autoQueueEnabled, sensorState, errorMessage, connectionState, selectedCoursId, isCourseScheduleConfigured]);
+  }, [autoQueueEnabled, sensorState, errorMessage, canScan, manualEntryOpen, scanFailureCount]);
 
   return (
     <div className="flex">
@@ -448,13 +645,16 @@ export default function UtilisateurPresence() {
                       {sensorState === 'idle' && !isListening && connectionState === 'connected' && selectedCoursId && !isCourseScheduleConfigured && (
                         <p className="text-base font-medium text-amber-700">Configurez d’abord l’horaire du cours depuis Vue d’ensemble.</p>
                       )}
+                      {sensorState === 'idle' && !isListening && connectionState === 'connected' && selectedCoursId && isCourseScheduleConfigured && !isPointageWindowOpen && (
+                        <p className="text-base font-medium text-amber-700">{ATTENDANCE_WINDOW_CLOSED_MESSAGE}</p>
+                      )}
                       {sensorState === 'idle' && !isListening && canScan && (
                         <p className="text-base font-medium text-emerald-700">Posez votre doigt sur le capteur...</p>
                       )}
                       {sensorState === 'idle' && isListening && (
                         <p className="text-base font-medium text-emerald-700 animate-pulse">Posez votre doigt sur le capteur...</p>
                       )}
-                      {sensorState === 'loading' && <p className="text-base font-medium text-emerald-700">Scannage en cours...</p>}
+                      {sensorState === 'loading' && <p className="text-base font-medium text-emerald-700">Empreinte reconnue. Validation de la présence en cours...</p>}
                       {sensorState === 'error' && <p className="text-base font-medium text-rose-700">{errorMessage || 'Empreinte non reconnue.'}</p>}
                       {sensorState === 'success' && <p className="text-base font-medium text-emerald-700">Empreinte reconnue avec succès</p>}
                     </div>
@@ -467,8 +667,12 @@ export default function UtilisateurPresence() {
                       <ScanSearch className="mr-2 h-4 w-4" />
                       {connectionState !== 'connected'
                         ? 'Capteur non connecté'
+                        : !isCourseScheduleConfigured
+                        ? 'Horaire non configuré'
+                        : !isPointageWindowOpen
+                        ? 'Pointage hors créneau'
                         : sensorState === 'loading'
-                        ? 'Scan en cours...'
+                        ? 'Validation en cours...'
                         : 'Scanner la présence'}
                     </Button>
 
@@ -480,6 +684,12 @@ export default function UtilisateurPresence() {
                       >
                         {autoQueueEnabled ? 'Mode file actif (auto-scan après chaque résultat)' : 'Activer le mode file automatique'}
                       </button>
+                    )}
+
+                    {sensorState === 'error' && scanFailureCount > 0 && (
+                      <p className="text-xs text-slate-500">
+                        Échecs de scan consécutifs: {scanFailureCount}/{MAX_SCAN_FAILURES_BEFORE_MANUAL}
+                      </p>
                     )}
                   </div>
 
@@ -552,7 +762,6 @@ export default function UtilisateurPresence() {
 
                         <div className="flex flex-col items-center gap-2 text-center">
                           <p className="text-sm text-slate-500">
-                            Profil affiché pendant 2 minutes ou jusqu’au prochain pointage.
                           </p>
                           {autoQueueEnabled && (
                             <p className="text-xs text-slate-400">Le capteur se réarme automatiquement pour la personne suivante.</p>
@@ -581,8 +790,8 @@ export default function UtilisateurPresence() {
         open={earlyDeparturePending !== null}
         onOpenChange={(open) => { if (!open) handleConfirmDeparture(null); }}
       >
-        <DialogContent className="max-w-sm rounded-2xl border border-amber-200 bg-white p-0 overflow-hidden shadow-2xl">
-          <div className="bg-gradient-to-br from-amber-500 to-orange-500 px-6 pt-6 pb-4 text-white text-center">
+        <DialogContent className="max-w-sm overflow-hidden rounded-2xl border border-blue-200 bg-white p-0 shadow-2xl">
+          <div className="bg-gradient-to-br from-blue-700 via-blue-600 to-cyan-500 px-6 pt-6 pb-4 text-center text-white">
             <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white/20">
               <LogOut className="h-7 w-7" />
             </div>
@@ -595,9 +804,9 @@ export default function UtilisateurPresence() {
           <div className="px-6 py-5 space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Motif du départ</p>
             {([
-              { value: 'maladie' as DepartureReason, label: 'Maladie', icon: '🏥' },
-              { value: 'urgence-familiale' as DepartureReason, label: 'Urgence familiale', icon: '👨‍👩‍👧' },
-              { value: 'urgence-travail' as DepartureReason, label: 'Urgence au travail', icon: '💼' },
+              { value: 'maladie' as DepartureReason, label: 'Maladie', icon: HeartPulse },
+              { value: 'urgence-familiale' as DepartureReason, label: 'Urgence familiale', icon: Users },
+              { value: 'urgence-travail' as DepartureReason, label: 'Urgence au travail', icon: BriefcaseBusiness },
             ] as const).map((opt) => (
               <button
                 key={opt.value}
@@ -605,11 +814,15 @@ export default function UtilisateurPresence() {
                 onClick={() => setSelectedReason(opt.value)}
                 className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left text-sm font-medium transition-all ${
                   selectedReason === opt.value
-                    ? 'border-amber-400 bg-amber-50 text-amber-900'
-                    : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-amber-300 hover:bg-amber-50/50'
+                    ? 'border-blue-400 bg-blue-50 text-blue-900 shadow-sm'
+                    : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-300 hover:bg-blue-50/60'
                 }`}
               >
-                <span className="text-xl">{opt.icon}</span>
+                <span className={`flex h-10 w-10 items-center justify-center rounded-full ${
+                  selectedReason === opt.value ? 'bg-blue-100 text-blue-700' : 'bg-white text-slate-500'
+                }`}>
+                  <opt.icon className="h-5 w-5" />
+                </span>
                 {opt.label}
               </button>
             ))}
@@ -617,16 +830,79 @@ export default function UtilisateurPresence() {
               <Button
                 onClick={() => handleConfirmDeparture(selectedReason)}
                 disabled={selectedReason === null}
-                className="flex-1 bg-amber-500 hover:bg-amber-600 text-white rounded-xl disabled:opacity-40"
+                className="flex-1 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40"
               >
                 Confirmer le motif
               </Button>
               <Button
                 variant="outline"
                 onClick={() => handleConfirmDeparture(null)}
-                className="flex-1 rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50"
+                className="flex-1 rounded-xl border-blue-200 text-blue-700 hover:bg-blue-50"
               >
                 Marquer absent
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={manualEntryOpen} onOpenChange={setManualEntryOpen}>
+        <DialogContent className="max-w-md rounded-2xl border border-slate-200 bg-white p-0 overflow-hidden shadow-2xl">
+          <div className="bg-gradient-to-br from-slate-900 to-slate-700 px-6 pt-6 pb-4 text-white text-center">
+            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white/10">
+              <AlertTriangle className="h-7 w-7" />
+            </div>
+            <DialogTitle className="text-lg font-bold">Saisie manuelle du matricule</DialogTitle>
+            <p className="mt-1 text-sm text-white/80">
+              Après trois refus de scan, entrez le matricule de l'étudiant pour poursuivre le pointage.
+            </p>
+          </div>
+          <div className="space-y-4 px-6 py-5">
+            <div className="space-y-2">
+              <label htmlFor="teacher-manual-matricule" className="text-sm font-medium text-slate-700">
+                Matricule de l'étudiant
+              </label>
+              <Input
+                id="teacher-manual-matricule"
+                value={manualMatricule}
+                onChange={(event) => {
+                  setManualMatricule(event.target.value.toUpperCase());
+                  if (manualEntryError) {
+                    setManualEntryError('');
+                  }
+                }}
+                placeholder="Ex: 22A1234"
+                autoComplete="off"
+                disabled={manualEntrySubmitting}
+              />
+            </div>
+
+            {manualEntryError && (
+              <p className="text-sm font-medium text-rose-700">{manualEntryError}</p>
+            )}
+
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50"
+                disabled={manualEntrySubmitting}
+                onClick={() => {
+                  setManualEntryOpen(false);
+                  setManualEntryError('');
+                  setManualMatricule('');
+                  setScanFailureCount(0);
+                }}
+              >
+                Annuler
+              </Button>
+              <Button
+                type="button"
+                className="flex-1 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40"
+                disabled={manualEntrySubmitting}
+                onClick={() => { void handleManualEntrySubmit(); }}
+              >
+                {manualEntrySubmitting ? 'Validation...' : 'Valider le matricule'}
               </Button>
             </div>
           </div>

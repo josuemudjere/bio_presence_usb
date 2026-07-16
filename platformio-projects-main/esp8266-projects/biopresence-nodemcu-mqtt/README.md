@@ -74,4 +74,5 @@ Pins utilises:
 
 Vitesse serie du lecteur:
 
-- `57600`
+- preferer `19200` sur ESP8266
+- le firmware detecte aussi un module encore configure en `57600` puis tente de le migrer automatiquement vers `19200`

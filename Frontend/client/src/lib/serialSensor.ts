@@ -17,8 +17,18 @@ import { createUuid } from './utils';
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected';
 type ConnectionListener = (state: ConnectionState) => void;
-export type SensorProgressEvent = Pick<SensorEventMessage, 'event' | 'message' | 'requestId' | 'fingerprintId' | 'sensorId'>;
+export type SensorProgressEvent = Pick<SensorEventMessage, 'event' | 'message' | 'requestId' | 'fingerprintId' | 'fingerprintTemplateBase64' | 'sensorId'>;
 type SensorProgressListener = (event: SensorProgressEvent) => void;
+
+export interface EnrollmentScanResult {
+  fingerprintId: string;
+  fingerprintTemplateBase64: string;
+}
+
+type PendingScanResult = {
+  fingerprintId: string;
+  fingerprintTemplateBase64?: string;
+};
 
 interface SensorMqttConfig {
   brokerUrl: string;
@@ -32,6 +42,8 @@ interface SensorMqttConfig {
 }
 
 const SENSOR_AVAILABILITY_TIMEOUT_MS = 5_000;
+const ATTENDANCE_SCAN_TIMEOUT_MS = 30_000;
+const ENROLLMENT_SCAN_TIMEOUT_MS = 90_000;
 
 function isMqttDebugEnabled(): boolean {
   if (import.meta.env.DEV) {
@@ -98,7 +110,7 @@ class SerialSensorService {
   private listeners = new Set<ConnectionListener>();
   private progressListeners = new Set<SensorProgressListener>();
   private activeSensorId: string | null = null;
-  private pendingResolve: ((id: string) => void) | null = null;
+  private pendingResolve: ((result: PendingScanResult) => void) | null = null;
   private pendingReject: ((err: Error) => void) | null = null;
   private pendingRequestId: string | null = null;
   private lastStatus: SensorStatusMessage | null = null;
@@ -391,6 +403,7 @@ class SerialSensorService {
         message: event.message,
         requestId: event.requestId,
         fingerprintId: event.fingerprintId,
+        fingerprintTemplateBase64: event.fingerprintTemplateBase64,
         sensorId: event.sensorId,
       });
     }
@@ -405,7 +418,16 @@ class SerialSensorService {
           break;
         }
 
-        this.pendingResolve?.(event.fingerprintId);
+        if (event.event === 'ENROLLED' && !event.fingerprintTemplateBase64) {
+          this.pendingReject?.(new Error('Réponse MQTT invalide: template biométrique manquant.'));
+          this.clearPending();
+          break;
+        }
+
+        this.pendingResolve?.({
+          fingerprintId: event.fingerprintId,
+          fingerprintTemplateBase64: event.fingerprintTemplateBase64,
+        });
         this.clearPending();
         break;
       case 'NO_MATCH':
@@ -481,6 +503,17 @@ class SerialSensorService {
     }
 
     this.lastStatus = decoded;
+
+    if (this.pendingRequestId && (decoded.state === 'OFFLINE' || decoded.state === 'ERROR')) {
+      this.emitProgress({
+        event: 'ERROR',
+        message: decoded.message || 'Le capteur biométrique est passé en erreur.',
+        requestId: this.pendingRequestId,
+        sensorId: decoded.sensorId,
+      });
+      this.cancelPending(new Error(decoded.message || 'Le capteur biométrique est passé en erreur.'));
+      return;
+    }
 
     if (isOperationalStatus(decoded.state) && !this.availabilityRequestId) {
       if (this.selectActiveSensor(decoded.sensorId)) {
@@ -570,7 +603,10 @@ class SerialSensorService {
     await this.publishRawCommand(command, requestId, mode);
   }
 
-  async scan(mode: SensorScanMode, timeoutMs = 30_000): Promise<string> {
+  async scan(
+    mode: SensorScanMode,
+    timeoutMs = mode === 'enrollment' ? ENROLLMENT_SCAN_TIMEOUT_MS : ATTENDANCE_SCAN_TIMEOUT_MS
+  ): Promise<string> {
     if (!this.isConnected) {
       throw new Error('Capteur MQTT non connecté. Connectez le système au capteur d\'abord.');
     }
@@ -588,9 +624,9 @@ class SerialSensorService {
       }, timeoutMs);
 
       this.pendingRequestId = requestId;
-      this.pendingResolve = (id) => {
+      this.pendingResolve = (result) => {
         window.clearTimeout(timer);
-        resolve(id);
+        resolve(result.fingerprintId);
       };
 
       this.pendingReject = (error) => {
@@ -600,6 +636,52 @@ class SerialSensorService {
 
       const command: SensorCommandName = mode === 'enrollment' ? 'ENROLL' : 'SCAN';
       this.publishCommand(command, requestId, mode).catch((error: unknown) => {
+        window.clearTimeout(timer);
+        this.clearPending();
+        reject(error instanceof Error ? error : new Error(String(error)));
+      });
+    });
+  }
+
+  async enroll(
+    timeoutMs = ENROLLMENT_SCAN_TIMEOUT_MS
+  ): Promise<EnrollmentScanResult> {
+    if (!this.isConnected) {
+      throw new Error('Capteur MQTT non connecté. Connectez le système au capteur d\'abord.');
+    }
+
+    if (this.pendingResolve) {
+      throw new Error('Un scan est déjà en cours.');
+    }
+
+    await this.ensureSensorAvailable(SENSOR_AVAILABILITY_TIMEOUT_MS, true);
+
+    return new Promise<EnrollmentScanResult>((resolve, reject) => {
+      const requestId = createUuid();
+      const timer = window.setTimeout(() => {
+        this.cancelPending(new Error('Temps d\'attente dépassé. Aucun évènement MQTT du capteur n\'a été reçu.'));
+      }, timeoutMs);
+
+      this.pendingRequestId = requestId;
+      this.pendingResolve = (result) => {
+        window.clearTimeout(timer);
+        if (!result.fingerprintTemplateBase64) {
+          reject(new Error('Le capteur n\'a pas transmis de template biométrique exploitable.'));
+          return;
+        }
+
+        resolve({
+          fingerprintId: result.fingerprintId,
+          fingerprintTemplateBase64: result.fingerprintTemplateBase64,
+        });
+      };
+
+      this.pendingReject = (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      };
+
+      this.publishCommand('ENROLL', requestId, 'enrollment').catch((error: unknown) => {
         window.clearTimeout(timer);
         this.clearPending();
         reject(error instanceof Error ? error : new Error(String(error)));

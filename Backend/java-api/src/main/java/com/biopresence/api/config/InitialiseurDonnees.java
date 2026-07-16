@@ -26,10 +26,18 @@ public class InitialiseurDonnees implements CommandLineRunner {
 
   @Override
   public void run(String... args) {
+    migrateFingerprintTemplateColumn();
     migrateStudentStatusColumn();
     migrateStudentFingerprintStorage();
     migrateStudentInscriptions();
     adminService.seedDefault();
+  }
+
+  private void migrateFingerprintTemplateColumn() {
+    jdbcTemplate.execute("""
+      ALTER TABLE empreintes_digitales
+      MODIFY COLUMN template LONGBLOB NOT NULL
+      """);
   }
 
   private void migrateStudentStatusColumn() {

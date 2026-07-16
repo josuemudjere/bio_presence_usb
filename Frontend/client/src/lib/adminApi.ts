@@ -184,6 +184,9 @@ function toClientStudent(apiStudent: ApiStudent): Student {
   // Cette conversion isole le front des détails exacts du contrat backend.
   const academicStatus = apiStudent.status;
   const fingerprintTemplateIds = apiStudent.fingerprintTemplateIds ?? parseFingerprintIds(apiStudent.fingerprintTemplateId);
+  const normalizedFingerprintTemplateId = fingerprintTemplateIds.length > 0
+    ? fingerprintTemplateIds.join(',')
+    : parseFingerprintIds(apiStudent.fingerprintTemplateId).join(',');
   return {
     id: apiStudent.id,
     name: apiStudent.name,
@@ -201,10 +204,10 @@ function toClientStudent(apiStudent: ApiStudent): Student {
     coursIds: apiStudent.coursIds ?? [],
     creditCoursIds: apiStudent.creditCoursIds ?? [],
     photoUrl: apiStudent.photoUrl,
-    fingerprintRegistered: apiStudent.fingerprintRegistered,
+    fingerprintRegistered: fingerprintTemplateIds.length > 0 || apiStudent.fingerprintRegistered,
     fingerprintTemplateIds,
-    fingerprintTemplateId: apiStudent.fingerprintTemplateId ?? fingerprintTemplateIds.join(','),
-    fingerprintCount: apiStudent.fingerprintCount,
+    fingerprintTemplateId: normalizedFingerprintTemplateId || undefined,
+    fingerprintCount: apiStudent.fingerprintCount ?? fingerprintTemplateIds.length,
     lastFingerprintScan: apiStudent.lastFingerprintScan,
     academicStatus,
     status: academicStatus === 'ACTIF' ? 'ready' : 'pending',
@@ -344,6 +347,22 @@ export async function createStudent(input: {
   });
 
   return toClientStudent(student);
+}
+
+export async function reserveFingerprintEnrollment(
+  fingerprintTemplateId: string,
+  fingerprintTemplateDataBase64?: string
+): Promise<{ fingerprintTemplateId: string; reserved: boolean; message: string }> {
+  return request<{ fingerprintTemplateId: string; reserved: boolean; message: string }>('/students/fingerprint-reservations', {
+    method: 'POST',
+    body: JSON.stringify({ fingerprintTemplateId, fingerprintTemplateDataBase64 }),
+  });
+}
+
+export async function releaseFingerprintEnrollment(fingerprintTemplateId: string): Promise<void> {
+  await request<void>(`/students/fingerprint-reservations/${encodeURIComponent(fingerprintTemplateId)}`, {
+    method: 'DELETE',
+  });
 }
 
 export async function updateStudent(

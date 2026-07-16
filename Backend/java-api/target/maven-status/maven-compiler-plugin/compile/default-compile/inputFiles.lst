@@ -26,6 +26,8 @@
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/ProgrammeReponse.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/PromotionReponse.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/PromotionRequete.java
+/Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/ReservationEmpreinteReponse.java
+/Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/ReservationEmpreinteRequete.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/ScanReponse.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/UtilisateurReponse.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/UtilisateurRequete.java

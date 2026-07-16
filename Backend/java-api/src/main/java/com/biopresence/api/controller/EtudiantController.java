@@ -2,6 +2,8 @@ package com.biopresence.api.controller;
 
 import com.biopresence.api.dto.EtudiantRequete;
 import com.biopresence.api.dto.EtudiantReponse;
+import com.biopresence.api.dto.ReservationEmpreinteReponse;
+import com.biopresence.api.dto.ReservationEmpreinteRequete;
 import com.biopresence.api.service.EtudiantService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -49,6 +51,17 @@ public class EtudiantController {
   public EtudiantReponse create(@Valid @RequestBody EtudiantRequete request) {
     // Crée un étudiant avec ses données d'identité, d'affectation et d'empreinte éventuelle.
     return studentService.create(request);
+  }
+
+  @PostMapping("/fingerprint-reservations")
+  public ReservationEmpreinteReponse reserveFingerprint(@Valid @RequestBody ReservationEmpreinteRequete request) {
+    return studentService.reserveFingerprintForEnrollment(request.fingerprintTemplateId(), request.fingerprintTemplateDataBase64());
+  }
+
+  @DeleteMapping("/fingerprint-reservations/{fingerprintTemplateId}")
+  public ResponseEntity<Void> releaseFingerprint(@PathVariable String fingerprintTemplateId) {
+    studentService.releaseFingerprintReservation(fingerprintTemplateId);
+    return ResponseEntity.noContent().build();
   }
 
   @PostMapping("/resync-inscriptions")

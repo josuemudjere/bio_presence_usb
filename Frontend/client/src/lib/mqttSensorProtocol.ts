@@ -7,6 +7,7 @@ export type SensorEventName =
   | 'READY'
   | 'ACK'
   | 'FINGER_PLACED'
+  | 'IMAGE_CAPTURED'
   | 'MATCH'
   | 'NO_MATCH'
   | 'ENROLLED'
@@ -30,6 +31,7 @@ export interface SensorEventMessage {
   occurredAt: string;
   requestId?: string;
   fingerprintId?: string;
+  fingerprintTemplateBase64?: string;
   sensorId?: string;
   message?: string;
 }

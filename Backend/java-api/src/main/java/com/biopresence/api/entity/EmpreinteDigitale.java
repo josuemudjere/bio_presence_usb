@@ -27,7 +27,7 @@ public class EmpreinteDigitale {
   public String templateId;
 
   @Lob
-  @Column(nullable = false)
+  @Column(nullable = false, columnDefinition = "LONGBLOB")
   public byte[] template;
 
   @Column(nullable = false)

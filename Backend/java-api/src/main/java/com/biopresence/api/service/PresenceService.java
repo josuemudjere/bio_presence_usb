@@ -36,25 +36,29 @@ import java.util.stream.Stream;
 @Transactional
 public class PresenceService {
   private static final Logger logger = LoggerFactory.getLogger(PresenceService.class);
+  private static final int ATTENDANCE_GRACE_PERIOD_MINUTES = 20;
 
   private final PresenceRepository attendanceRecordRepository;
   private final JustificatifRepository justificatifRepository;
   private final EtudiantService studentService;
   private final ParametresCoursService courseSettingsService;
   private final InscriptionService inscriptionService;
+  private final CoursService coursService;
 
   public PresenceService(
     PresenceRepository attendanceRecordRepository,
     JustificatifRepository justificatifRepository,
     EtudiantService studentService,
     ParametresCoursService courseSettingsService,
-    InscriptionService inscriptionService
+    InscriptionService inscriptionService,
+    CoursService coursService
   ) {
     this.attendanceRecordRepository = attendanceRecordRepository;
     this.justificatifRepository = justificatifRepository;
     this.studentService = studentService;
     this.courseSettingsService = courseSettingsService;
     this.inscriptionService = inscriptionService;
+    this.coursService = coursService;
   }
 
   public ScanReponse scan(PresenceScanRequete request) {
@@ -84,6 +88,7 @@ public class PresenceService {
 
     LocalDate today = LocalDate.now();
     LocalTime now = LocalTime.now().withSecond(0).withNano(0);
+    validateAttendanceWindow(request.coursId(), now);
 
     var openRecord = attendanceRecordRepository
       .findFirstByStudentIdAndRecordDateAndCheckOutIsNullOrderByCheckInAsc(student.id, today);
@@ -136,6 +141,42 @@ public class PresenceService {
     LocalTime checkOut = request.checkOut() == null || request.checkOut().isBlank()
       ? null
       : LocalTime.parse(request.checkOut());
+
+    var openRecord = attendanceRecordRepository
+      .findFirstByStudentIdAndRecordDateAndCheckOutIsNullOrderByCheckInAsc(student.id, date);
+    List<Presence> dailyRecords = attendanceRecordRepository.findByStudentIdAndRecordDateOrderByCheckInAsc(student.id, date);
+    boolean alreadyClosed = dailyRecords.stream().anyMatch(record -> record.checkOut != null);
+
+    if (openRecord.isPresent()) {
+      if (alreadyClosed) {
+        throw new IllegalStateException("Cet etudiant a deja effectue une entree et une sortie pour cette date.");
+      }
+
+      Presence record = openRecord.get();
+      LocalTime effectiveCheckOut = checkOut != null ? checkOut : checkIn;
+      validateAttendanceWindow(request.coursId(), effectiveCheckOut);
+      if (effectiveCheckOut.isBefore(record.checkIn)) {
+        throw new IllegalArgumentException("L'heure de sortie doit être postérieure à l'heure d'entrée.");
+      }
+
+      record.checkOut = effectiveCheckOut;
+      record.status = StatutPresence.PRESENT;
+      record.modeSaisie = ModeSaisie.MANUELLE;
+      if (record.coursId == null) {
+        record.coursId = request.coursId();
+      }
+
+      attendanceRecordRepository.save(record);
+      student.lastFingerprintScan = LocalDateTime.now().toString();
+      studentService.save(student);
+      return toResponse(record);
+    }
+
+    if (alreadyClosed) {
+      throw new IllegalStateException("Cet etudiant a deja effectue une entree et une sortie pour cette date.");
+    }
+
+    validateAttendanceWindow(request.coursId(), checkIn);
 
     Presence record = new Presence(student.id, request.coursId(), formatStudentName(student), student.matricule, student.department, date, checkIn);
     record.modeSaisie = ModeSaisie.MANUELLE;
@@ -300,6 +341,58 @@ public class PresenceService {
     }
 
     throw new IllegalStateException("Cet étudiant n'est pas inscrit à ce cours.");
+  }
+
+  private void validateAttendanceWindow(Long coursId, LocalTime scanTime) {
+    LocalTime startTime = resolveAttendanceStartTime(coursId);
+    LocalTime endTime = resolveAttendanceEndTime(coursId);
+
+    if (startTime == null || endTime == null) {
+      return;
+    }
+
+    LocalTime latestAllowed = endTime.plusMinutes(ATTENDANCE_GRACE_PERIOD_MINUTES);
+    if (scanTime.isBefore(startTime)) {
+      throw new IllegalStateException(
+        String.format(
+          "Le pointage n'est autorisé qu'à partir de %s pour ce cours.",
+          startTime
+        )
+      );
+    }
+
+    if (scanTime.isAfter(latestAllowed)) {
+      throw new IllegalStateException(
+        String.format(
+          "Le pointage est fermé pour ce cours depuis %s. Une tolérance maximale de %d minutes après la fin est appliquée.",
+          latestAllowed,
+          ATTENDANCE_GRACE_PERIOD_MINUTES
+        )
+      );
+    }
+  }
+
+  private LocalTime resolveAttendanceStartTime(Long coursId) {
+    String value = resolveAttendanceTimeValue(coursId, true);
+    return value == null || value.isBlank() ? null : LocalTime.parse(value);
+  }
+
+  private LocalTime resolveAttendanceEndTime(Long coursId) {
+    String value = resolveAttendanceTimeValue(coursId, false);
+    return value == null || value.isBlank() ? null : LocalTime.parse(value);
+  }
+
+  private String resolveAttendanceTimeValue(Long coursId, boolean start) {
+    if (coursId != null) {
+      try {
+        var cours = coursService.findEntity(coursId);
+        return start ? cours.heureDebut : cours.heureFin;
+      } catch (RuntimeException ignored) {
+      }
+    }
+
+    var settings = courseSettingsService.getCurrent();
+    return start ? settings.startTime() : settings.endTime();
   }
 
   private Set<UUID> getStudentIdsForCourse(Long coursId) {

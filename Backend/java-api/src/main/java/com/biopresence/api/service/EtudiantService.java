@@ -2,6 +2,7 @@ package com.biopresence.api.service;
 
 import com.biopresence.api.dto.EtudiantRequete;
 import com.biopresence.api.dto.EtudiantReponse;
+import com.biopresence.api.dto.ReservationEmpreinteReponse;
 import com.biopresence.api.entity.Cours;
 import com.biopresence.api.entity.Doigt;
 import com.biopresence.api.entity.EmpreinteDigitale;
@@ -16,6 +17,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.Arrays;
@@ -70,6 +73,46 @@ public class EtudiantService {
 
   public EtudiantReponse getById(UUID id) {
     return toResponse(findEntity(id));
+  }
+
+  @Transactional
+  public ReservationEmpreinteReponse reserveFingerprintForEnrollment(String fingerprintTemplateId, String fingerprintTemplateDataBase64) {
+    String normalizedFingerprintId = normalizeFingerprintId(fingerprintTemplateId);
+    if (normalizedFingerprintId == null) {
+      throw new IllegalArgumentException("L'identifiant biométrique est obligatoire.");
+    }
+
+    EmpreinteDigitale fingerprint = fingerprintRepository.findFirstByTemplateIdIgnoreCase(normalizedFingerprintId)
+      .orElseGet(EmpreinteDigitale::new);
+
+    if (fingerprint.etudiant != null) {
+      throw new IllegalArgumentException("Cette empreinte est déjà associée à un étudiant.");
+    }
+
+    fingerprint.templateId = normalizedFingerprintId;
+  fingerprint.template = resolveFingerprintTemplateBytes(normalizedFingerprintId, fingerprintTemplateDataBase64);
+    fingerprint.qualite = 100;
+    fingerprint.doigt = Doigt.INDEX_DROIT;
+    fingerprint.dateEnrolement = LocalDateTime.now();
+    fingerprintRepository.save(fingerprint);
+
+    return new ReservationEmpreinteReponse(
+      normalizedFingerprintId,
+      true,
+      "Empreinte biométrique capturée et réservée. Complétez maintenant l'identité de l'étudiant."
+    );
+  }
+
+  @Transactional
+  public void releaseFingerprintReservation(String fingerprintTemplateId) {
+    String normalizedFingerprintId = normalizeFingerprintId(fingerprintTemplateId);
+    if (normalizedFingerprintId == null) {
+      return;
+    }
+
+    fingerprintRepository.findFirstByTemplateIdIgnoreCase(normalizedFingerprintId)
+      .filter(fingerprint -> fingerprint.etudiant == null)
+      .ifPresent(fingerprintRepository::delete);
   }
 
   @Transactional
@@ -270,7 +313,7 @@ public class EtudiantService {
     List<String> normalizedFingerprints = parseFingerprintIds(fingerprintTemplateId);
     if (!normalizedFingerprints.isEmpty()) {
       normalizedFingerprints.forEach(fingerprintId -> fingerprintRepository.findFirstByTemplateIdIgnoreCase(fingerprintId).ifPresent(existing -> {
-        if (currentId == null || existing.etudiant == null || !existing.etudiant.id.equals(currentId)) {
+        if (existing.etudiant != null && (currentId == null || !existing.etudiant.id.equals(currentId))) {
           throw new IllegalArgumentException("Cet identifiant d'empreinte existe deja.");
         }
       }));
@@ -402,15 +445,33 @@ public class EtudiantService {
       String fingerprintId = fingerprintIds.get(index);
       EmpreinteDigitale fingerprint = existingByTemplateId.get(fingerprintId);
       if (fingerprint == null) {
-        fingerprint = new EmpreinteDigitale();
-        fingerprint.etudiant = student;
+        fingerprint = fingerprintRepository.findFirstByTemplateIdIgnoreCase(fingerprintId).orElseGet(EmpreinteDigitale::new);
       }
 
+      if (fingerprint.etudiant != null && !student.id.equals(fingerprint.etudiant.id)) {
+        throw new IllegalArgumentException("Cet identifiant d'empreinte existe deja.");
+      }
+
+      fingerprint.etudiant = student;
       fingerprint.templateId = fingerprintId;
-      fingerprint.template = fingerprintId.getBytes(StandardCharsets.UTF_8);
+      if (fingerprint.template == null || fingerprint.template.length == 0) {
+        fingerprint.template = fingerprintId.getBytes(StandardCharsets.UTF_8);
+      }
       fingerprint.qualite = 100;
       fingerprint.doigt = resolveFinger(index);
       fingerprintRepository.save(fingerprint);
+    }
+  }
+
+  private byte[] resolveFingerprintTemplateBytes(String fingerprintId, String fingerprintTemplateDataBase64) {
+    if (fingerprintTemplateDataBase64 == null || fingerprintTemplateDataBase64.isBlank()) {
+      return fingerprintId.getBytes(StandardCharsets.UTF_8);
+    }
+
+    try {
+      return Base64.getDecoder().decode(fingerprintTemplateDataBase64.trim());
+    } catch (IllegalArgumentException exception) {
+      throw new IllegalArgumentException("Le template biométrique transmis est invalide.");
     }
   }
 

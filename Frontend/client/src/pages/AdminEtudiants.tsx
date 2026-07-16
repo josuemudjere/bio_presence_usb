@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { CalendarDays, CheckCircle2, Clock, Download, FileCheck2, Fingerprint, ImagePlus, Loader2, LogOut, Plus, Search, Trash2, Unplug, Usb, Users } from 'lucide-react';
+import { AlertTriangle, CalendarDays, CheckCircle2, Clock, Download, FileCheck2, Fingerprint, ImagePlus, Loader2, LogOut, Pencil, Plus, Search, Trash2, Unplug, Usb, Users } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import Sidebar from '@/components/Sidebar';
 import { toast } from 'sonner';
+import { addPdfUsbLogo } from '@/lib/pdf';
 import {
   loadAttendanceRecords,
   loadCourseSettings,
@@ -33,11 +34,13 @@ import {
   fetchCourseSettings,
   fetchPromotions,
   fetchStudents,
+  releaseFingerprintEnrollment,
   resetAttendanceRecordsApi,
+  reserveFingerprintEnrollment,
   scanAttendance,
   updateStudent as updateStudentApi,
 } from '@/lib/adminApi';
-import { getBiometricErrorMessage, notifyRejectedFingerprintScan, scanFingerprintFromSensor } from '@/lib/biometricSensor';
+import { enrollFingerprintFromSensor, getBiometricErrorMessage, notifyRejectedFingerprintScan, scanFingerprintFromSensor } from '@/lib/biometricSensor';
 import { serialSensor, type ConnectionState, type SensorProgressEvent } from '@/lib/serialSensor';
 import { appendFingerprintId, createUuid, hasFingerprintId, parseFingerprintIds } from '@/lib/utils';
 
@@ -83,8 +86,32 @@ function getStudentInitials(student: Pick<Student, 'name' | 'postNom' | 'prenom'
     .toUpperCase();
 }
 
+function parseTimeToMinutes(value?: string) {
+  if (!value) {
+    return null;
+  }
+
+  const [hours, minutes] = value.split(':').map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null;
+  }
+
+  return (hours * 60) + minutes;
+}
+
+function resolveStudentFiliere(student: Student | undefined, promotions: Promotion[]): string {
+  if (student?.promotionId != null) {
+    const promotion = promotions.find((item) => item.id === student.promotionId);
+    if (promotion?.programme && promotion.programme.trim().length > 0) {
+      return promotion.programme;
+    }
+  }
+
+  return 'Non définie';
+}
+
 export default function AdminUsers() {
-  type ScanDialogStep = 'idle' | 'prompt' | 'loading' | 'success';
+  type ScanDialogStep = 'idle' | 'prompt' | 'loading' | 'success' | 'error';
   type ScanDialogMode = 'attendance' | 'enrollment';
   type ScanProgressState = {
     sensorReady: boolean;
@@ -93,13 +120,15 @@ export default function AdminUsers() {
     message: string;
   };
 
-  const defaultProgressMessage = 'Placez votre doigt sur le capteur pour lancer la lecture.';
+  const defaultProgressMessage = 'Placez votre doigt pour scanner.';
+  const scanFeedbackDelayMs = 1400;
   const initialScanProgress = (): ScanProgressState => ({
     sensorReady: false,
     fingerPlaced: false,
     confirmed: false,
     message: defaultProgressMessage,
   });
+  const waitForScanFeedback = () => new Promise((resolve) => window.setTimeout(resolve, scanFeedbackDelayMs));
 
   const applySensorProgressEvent = (
     current: ScanProgressState,
@@ -117,7 +146,9 @@ export default function AdminUsers() {
         return {
           ...current,
           sensorReady: true,
-          message: event.message || 'Commande reçue par le capteur. Initialisation en cours...',
+          message: mode === 'enrollment'
+            ? 'Placez votre doigt pour scanner'
+            : event.message || 'Commande reçue par le capteur. Initialisation en cours...',
         };
       case 'READY':
         return {
@@ -130,7 +161,16 @@ export default function AdminUsers() {
           ...current,
           sensorReady: true,
           fingerPlaced: true,
-          message: 'Doigt détecté. Extraction de l\'empreinte en cours...',
+          message: mode === 'enrollment'
+            ? 'Extraction de l\'image de l\'empreinte'
+            : 'Doigt détecté. Image capturée, vérification en cours. Vous pouvez retirer le doigt.',
+        };
+      case 'IMAGE_CAPTURED':
+        return {
+          ...current,
+          sensorReady: true,
+          fingerPlaced: true,
+          message: 'Image d\'empreinte capturée avec succès. Retirez puis replacez le doigt pour confirmer le template.',
         };
       case 'MATCH':
         return {
@@ -146,7 +186,7 @@ export default function AdminUsers() {
           sensorReady: true,
           fingerPlaced: true,
           confirmed: true,
-          message: 'Empreinte capturée. Enregistrement dans le système en cours...',
+          message: 'Template biométrique validé. L\'empreinte pourra être reconnue lors du pointage de présence.',
         };
       case 'NO_MATCH':
         return {
@@ -192,8 +232,14 @@ export default function AdminUsers() {
         if (event.event === 'FINGER_PLACED') {
           setScanDialogStep('loading');
         }
+        if (event.event === 'IMAGE_CAPTURED' && scanDialogMode === 'enrollment') {
+          toast.success('Image d\'empreinte capturée avec succès. Retirez puis replacez le doigt pour finaliser l\'enrôlement.');
+        }
         if (event.event === 'MATCH' || event.event === 'ENROLLED') {
           setScanDialogStep('success');
+        }
+        if (event.event === 'ERROR' || event.event === 'CANCELLED') {
+          setScanDialogStep('error');
         }
       }),
     [scanDialogMode]
@@ -215,8 +261,67 @@ export default function AdminUsers() {
     creditCoursIds: [] as string[],
     photoUrl: '',
   });
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
+  const [savingStudentEdit, setSavingStudentEdit] = useState(false);
+  const [editStudentForm, setEditStudentForm] = useState({
+    name: '',
+    postNom: '',
+    prenom: '',
+    matricule: '',
+    dateNaissance: '',
+    lieuNaissance: '',
+    adresse: '',
+    telephone: '',
+    department: '',
+    level: '',
+    status: 'ACTIF' as 'ACTIF' | 'INACTIF' | 'SUSPENDU' | 'DIPLOME' | 'EXCLU',
+    coursId: '',
+    promotionId: '',
+    creditCoursIds: [] as string[],
+    photoUrl: '',
+  });
+  const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const editPhotoInputRef = useRef<HTMLInputElement>(null);
+  const initialStudentFormState = {
+    name: '',
+    postNom: '',
+    prenom: '',
+    matricule: '',
+    dateNaissance: '',
+    lieuNaissance: '',
+    adresse: '',
+    telephone: '',
+    department: '',
+    level: '',
+    status: 'ACTIF' as 'ACTIF' | 'INACTIF' | 'SUSPENDU' | 'DIPLOME' | 'EXCLU',
+    coursId: '',
+    promotionId: '',
+    creditCoursIds: [] as string[],
+    photoUrl: '',
+  };
+
+  const isStudentIdentityStepEnabled = Boolean(pendingFingerprintId);
+
+  const resetStudentRegistrationForm = () => {
+    setPendingFingerprintId('');
+    setStudentForm(initialStudentFormState);
+    setPhotoPreview(null);
+  };
+
+  const releasePendingFingerprintReservation = async (fingerprintId?: string) => {
+    if (!isApiReady || !fingerprintId) {
+      return;
+    }
+
+    try {
+      await releaseFingerprintEnrollment(fingerprintId);
+    } catch {
+      // Une réservation orpheline ne doit pas bloquer l'interface d'enrôlement.
+    }
+  };
 
   const handlePhotoFile = (file: File | undefined) => {
     // La photo est compressée côté navigateur pour éviter de stocker un payload inutilement lourd.
@@ -240,6 +345,31 @@ export default function AdminUsers() {
       URL.revokeObjectURL(objectUrl);
       setPhotoPreview(dataUrl);
       setStudentForm((current) => ({ ...current, photoUrl: dataUrl }));
+    };
+    img.src = objectUrl;
+  };
+
+  const handleEditPhotoFile = (file: File | undefined) => {
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('La photo dépasse 2 Mo. Veuillez choisir une image de 2 Mo ou moins.');
+      return;
+    }
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      const MAX = 800;
+      const ratio = Math.min(1, MAX / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * ratio);
+      canvas.height = Math.round(img.height * ratio);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+      URL.revokeObjectURL(objectUrl);
+      setEditPhotoPreview(dataUrl);
+      setEditStudentForm((current) => ({ ...current, photoUrl: dataUrl }));
     };
     img.src = objectUrl;
   };
@@ -334,6 +464,19 @@ export default function AdminUsers() {
 
     return true;
   });
+  const selectedEditPromotion = promotions.find((item) => String(item.id) === editStudentForm.promotionId);
+  const editPromotionCourseIds = new Set(selectedEditPromotion?.coursIds ?? []);
+  const editCreditCourseOptions = cours.filter((item) => {
+    if (!selectedEditPromotion) {
+      return false;
+    }
+
+    if (editPromotionCourseIds.has(item.id)) {
+      return false;
+    }
+
+    return true;
+  });
 
   useEffect(() => {
     // Le choix d'une promotion préremplit automatiquement le département, le niveau et les cours principaux.
@@ -349,6 +492,20 @@ export default function AdminUsers() {
       creditCoursIds: current.creditCoursIds.filter((value) => !selectedPromotion.coursIds.includes(Number(value))),
     }));
   }, [selectedPromotion]);
+
+  useEffect(() => {
+    if (!selectedEditPromotion) {
+      return;
+    }
+
+    setEditStudentForm((current) => ({
+      ...current,
+      department: selectedEditPromotion.departement,
+      level: selectedEditPromotion.niveau,
+      coursId: selectedEditPromotion.coursIds[0] ? String(selectedEditPromotion.coursIds[0]) : '',
+      creditCoursIds: current.creditCoursIds.filter((value) => !selectedEditPromotion.coursIds.includes(Number(value))),
+    }));
+  }, [selectedEditPromotion]);
 
   const studentEligibilityRows = students
     .map((student) => {
@@ -416,8 +573,7 @@ export default function AdminUsers() {
           fingerprintCount: 1,
         });
         setStudents((currentStudents) => [created, ...currentStudents]);
-        setPendingFingerprintId('');
-        setStudentForm({ name: '', postNom: '', prenom: '', matricule: '', dateNaissance: '', lieuNaissance: '', adresse: '', telephone: '', department: '', level: '', status: 'ACTIF', coursId: '', promotionId: '', creditCoursIds: [], photoUrl: '' });
+        resetStudentRegistrationForm();
         toast.success('Étudiant enregistré Avec Succès avec empreinte biométrique.');
         return;
       } catch (error) {
@@ -452,10 +608,7 @@ export default function AdminUsers() {
     };
 
     setStudents((currentStudents) => [newStudent, ...currentStudents]);
-    setPendingFingerprintId('');
-    setStudentForm({ name: '', postNom: '', prenom: '', matricule: '', dateNaissance: '', lieuNaissance: '', adresse: '', telephone: '', department: '', level: '', status: 'ACTIF', coursId: '', promotionId: '', creditCoursIds: [], photoUrl: '' });
-    setPhotoPreview(null);
-    setPhotoPreview(null);
+    resetStudentRegistrationForm();
     toast.success('Étudiant enregistré en local avec empreinte biométrique.');
   };
 
@@ -471,12 +624,31 @@ export default function AdminUsers() {
     setScanProgress(initialScanProgress());
 
     try {
-      // Appel réel au capteur : la promesse se résout quand le doigt est détecté
-      const fingerprintId = await scanFingerprintFromSensor({ mode: 'enrollment' });
+      // Le capteur ne résout la promesse qu'après avoir terminé la lecture utile.
+      const enrollment = await enrollFingerprintFromSensor();
+      const fingerprintId = enrollment.fingerprintId;
 
       const fingerprintAlreadyUsed = students.some((student) => hasFingerprintId(student.fingerprintTemplateId, fingerprintId));
       if (fingerprintAlreadyUsed) {
         throw new Error('Cette empreinte est déjà associée à un autre étudiant.');
+      }
+
+      if (pendingFingerprintId && pendingFingerprintId !== fingerprintId) {
+        await releasePendingFingerprintReservation(pendingFingerprintId);
+      }
+
+      if (isApiReady) {
+        const reservation = await reserveFingerprintEnrollment(fingerprintId, enrollment.fingerprintTemplateBase64);
+        setPendingFingerprintId(reservation.fingerprintTemplateId);
+        setScanDialogStep('success');
+        setScanProgress((current) => ({
+          ...current,
+          confirmed: true,
+          message: reservation.message,
+        }));
+        toast.success('Empreinte capturée et réservée dans la base. Complétez maintenant les informations étudiant.');
+        await waitForScanFeedback();
+        return;
       }
 
       setPendingFingerprintId(fingerprintId);
@@ -484,9 +656,10 @@ export default function AdminUsers() {
       setScanProgress((current) => ({
         ...current,
         confirmed: true,
-        message: 'Empreinte capturée et prête à être associée à cet étudiant.',
+        message: 'Empreinte capturée localement. Complétez maintenant les informations étudiant.',
       }));
       toast.success('Empreinte capturée. Vous pouvez maintenant compléter les informations étudiant.');
+      await waitForScanFeedback();
     } catch (error) {
       toast.error(getBiometricErrorMessage(error));
     } finally {
@@ -496,6 +669,12 @@ export default function AdminUsers() {
       setScanProgress(initialScanProgress());
       setIsSensorBusy(false);
     }
+  };
+
+  const handleClearPendingFingerprint = async () => {
+    await releasePendingFingerprintReservation(pendingFingerprintId);
+    setPendingFingerprintId('');
+    toast.success('Empreinte capturée supprimée. Vous pouvez relancer un nouvel enrôlement.');
   };
 
   const markAttendanceForStudent = (student: Student) => {
@@ -575,6 +754,117 @@ export default function AdminUsers() {
     toast.success(`Étudiant "${student.name}" supprimé.`);
   };
 
+  const handleOpenEditStudent = (student: Student) => {
+    setEditingStudentId(student.id);
+    setEditStudentForm({
+      name: student.name,
+      postNom: student.postNom ?? '',
+      prenom: student.prenom ?? '',
+      matricule: student.matricule,
+      dateNaissance: student.dateNaissance ?? '',
+      lieuNaissance: student.lieuNaissance ?? '',
+      adresse: student.adresse ?? '',
+      telephone: student.telephone ?? '',
+      department: student.department,
+      level: student.level,
+      status: student.academicStatus ?? 'ACTIF',
+      coursId: student.coursId != null ? String(student.coursId) : '',
+      promotionId: student.promotionId != null ? String(student.promotionId) : '',
+      creditCoursIds: (student.creditCoursIds ?? []).map(String),
+      photoUrl: student.photoUrl ?? '',
+    });
+    setEditPhotoPreview(student.photoUrl ?? null);
+    setEditDialogOpen(true);
+  };
+
+  const handleUpdateStudentProfile = async () => {
+    if (!editingStudentId) {
+      return;
+    }
+
+    if (!editStudentForm.name || !editStudentForm.matricule || !editStudentForm.promotionId) {
+      toast.error('Renseignez le nom, le matricule et la promotion.');
+      return;
+    }
+
+    const duplicateMatricule = students.some(
+      (student) => student.id !== editingStudentId && student.matricule.toLowerCase() === editStudentForm.matricule.toLowerCase()
+    );
+
+    if (duplicateMatricule) {
+      toast.error('Ce matricule existe déjà.');
+      return;
+    }
+
+    const currentStudent = students.find((student) => student.id === editingStudentId);
+    if (!currentStudent) {
+      toast.error('Étudiant introuvable.');
+      return;
+    }
+
+    setSavingStudentEdit(true);
+    try {
+      const payload = {
+        name: editStudentForm.name,
+        postNom: editStudentForm.postNom || undefined,
+        prenom: editStudentForm.prenom || undefined,
+        matricule: editStudentForm.matricule,
+        dateNaissance: editStudentForm.dateNaissance || undefined,
+        lieuNaissance: editStudentForm.lieuNaissance || undefined,
+        adresse: editStudentForm.adresse || undefined,
+        telephone: editStudentForm.telephone || undefined,
+        department: editStudentForm.department,
+        level: editStudentForm.level,
+        status: editStudentForm.status,
+        coursId: editStudentForm.coursId ? Number(editStudentForm.coursId) : null,
+        promotionId: editStudentForm.promotionId ? Number(editStudentForm.promotionId) : null,
+        creditCoursIds: editStudentForm.creditCoursIds.map(Number),
+        photoUrl: editStudentForm.photoUrl.trim() || undefined,
+        fingerprintTemplateIds: currentStudent.fingerprintTemplateIds,
+        fingerprintTemplateId: currentStudent.fingerprintTemplateId,
+        fingerprintCount: currentStudent.fingerprintCount,
+      };
+
+      if (isApiReady) {
+        const updated = await updateStudentApi(editingStudentId, payload);
+        setStudents((currentStudents) => currentStudents.map((student) => student.id === editingStudentId ? updated : student));
+      } else {
+        const selectedPromotionForEdit = promotions.find((item) => String(item.id) === editStudentForm.promotionId);
+        setStudents((currentStudents) => currentStudents.map((student) => (
+          student.id === editingStudentId
+            ? {
+                ...student,
+                name: editStudentForm.name,
+                postNom: editStudentForm.postNom || undefined,
+                prenom: editStudentForm.prenom || undefined,
+                matricule: editStudentForm.matricule.toUpperCase(),
+                dateNaissance: editStudentForm.dateNaissance || undefined,
+                lieuNaissance: editStudentForm.lieuNaissance || undefined,
+                adresse: editStudentForm.adresse || undefined,
+                telephone: editStudentForm.telephone || undefined,
+                department: editStudentForm.department,
+                level: editStudentForm.level,
+                coursId: editStudentForm.coursId ? Number(editStudentForm.coursId) : null,
+                promotionId: editStudentForm.promotionId ? Number(editStudentForm.promotionId) : null,
+                coursIds: selectedPromotionForEdit?.coursIds ?? [],
+                creditCoursIds: editStudentForm.creditCoursIds.map(Number),
+                photoUrl: editStudentForm.photoUrl.trim() || undefined,
+                academicStatus: editStudentForm.status,
+              }
+            : student
+        )));
+      }
+
+      setEditDialogOpen(false);
+      setEditingStudentId(null);
+      toast.success('Profil étudiant mis à jour.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible de mettre à jour le profil étudiant.');
+    } finally {
+      setSavingStudentEdit(false);
+    }
+  };
+
   const handleEnrollFingerprint = async (studentId: string) => {
     if (isSensorBusy) {
       return;
@@ -600,7 +890,8 @@ export default function AdminUsers() {
 
     try {
       // Appel réel au capteur : attend que le doigt soit placé sur le capteur
-      const enrolledFingerprintId = await scanFingerprintFromSensor({ mode: 'enrollment' });
+      const enrollment = await enrollFingerprintFromSensor();
+      const enrolledFingerprintId = enrollment.fingerprintId;
 
       let seqFingerprintId: string;
       let newCount: number;
@@ -617,6 +908,7 @@ export default function AdminUsers() {
       newCount = nextFingerprintIds.length;
 
       if (isApiReady) {
+        await reserveFingerprintEnrollment(enrolledFingerprintId, enrollment.fingerprintTemplateBase64);
         const updated = await updateStudentApi(student.id, {
           name: student.name,
           postNom: student.postNom,
@@ -665,6 +957,7 @@ export default function AdminUsers() {
         message: `Empreinte enregistrée pour ${student.name}.`,
       }));
       toast.success(`Doigt ${newCount}/3 enrôlé pour ${student.name}.`);
+      await waitForScanFeedback();
     } catch (error) {
       toast.error(getBiometricErrorMessage(error));
     } finally {
@@ -735,6 +1028,7 @@ export default function AdminUsers() {
         confirmed: true,
         message: 'Empreinte validée avec succès.',
       }));
+      await waitForScanFeedback();
     } catch (error) {
       if (typeof fingerprintId === 'string' && fingerprintId.length > 0) {
         void notifyRejectedFingerprintScan(error instanceof Error ? error.message : 'Scan refuse').catch(() => undefined);
@@ -750,7 +1044,7 @@ export default function AdminUsers() {
     }
   };
 
-  const handleExportPdf = () => {
+  const handleExportPdf = async () => {
     if (attendanceToday.length === 0) {
       toast.error('Aucune présence journalière à exporter.');
       return;
@@ -761,43 +1055,150 @@ export default function AdminUsers() {
       student: students.find((item) => item.id === record.studentId),
     }));
 
-    const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'landscape' });
+    const uniquePromotions = Array.from(new Set(exportRows
+      .map(({ student }) => {
+        if (student?.promotionId != null) {
+          const promotion = promotions.find((item) => item.id === student.promotionId);
+          return promotion?.nom ?? promotion?.niveau ?? student.level;
+        }
 
-    doc.setFontSize(16);
-    doc.text('Rapport journalier de présence', 40, 40);
-    doc.setFontSize(11);
-    doc.text(`Date: ${todayLabel}`, 40, 62);
-    doc.text(`Cours: ${courseSettings.courseName || 'Non défini'}`, 40, 80);
-    doc.text(`Durée du cours: ${courseSettings.courseDays} jour(s) - ${courseSettings.courseHours} heure(s)`, 40, 98);
+        return student?.level ?? null;
+      })
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)));
+
+    const uniqueDepartments = Array.from(new Set(exportRows
+      .map(({ student, record }) => student?.department ?? record.department)
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)));
+
+    const courseStartMinutes = parseTimeToMinutes(courseSettings.startTime);
+    const courseEndMinutes = parseTimeToMinutes(courseSettings.endTime);
+    const courseDurationMinutes =
+      courseStartMinutes != null && courseEndMinutes != null && courseEndMinutes > courseStartMinutes
+        ? courseEndMinutes - courseStartMinutes
+        : null;
+    const minimumAttendanceMinutes = courseDurationMinutes != null ? Math.ceil(courseDurationMinutes * 0.75) : null;
+    const reportRows = exportRows.map(({ record, student }) => {
+      const checkInMinutes = parseTimeToMinutes(record.checkIn);
+      const checkOutMinutes = parseTimeToMinutes(record.checkOut);
+      const attendedMinutes =
+        checkInMinutes != null && checkOutMinutes != null && checkOutMinutes >= checkInMinutes
+          ? checkOutMinutes - checkInMinutes
+          : null;
+      const leftEarly =
+        checkOutMinutes != null && courseEndMinutes != null && checkOutMinutes < courseEndMinutes;
+      const hasUnjustifiedEarlyDeparture = leftEarly && record.estJustifiee === false;
+      const isAbsentForReport =
+        hasUnjustifiedEarlyDeparture &&
+        minimumAttendanceMinutes != null &&
+        attendedMinutes != null &&
+        attendedMinutes < minimumAttendanceMinutes;
+
+      return {
+        record,
+        student,
+        statusLabel: isAbsentForReport ? 'Absent' : 'Présent',
+      };
+    });
+
+    const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'landscape' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const leftMargin = 40;
+    const rightMargin = 40;
+    const logoWidth = 68;
+
+    const { logoBottomY } = await addPdfUsbLogo(doc, { x: pageWidth - rightMargin - logoWidth, y: 34, width: logoWidth, gap: 0 });
+
+    doc.setTextColor(17, 24, 39);
+    doc.setFontSize(20);
+    doc.setFont('helvetica', 'bold');
+    doc.text('CONTROLE DE PRESENCE', pageWidth / 2, 44, { align: 'center' });
+
+    const headerTop = 94;
+    const labelColor: [number, number, number] = [33, 97, 191];
+    const valueColor: [number, number, number] = [31, 41, 55];
+    const metadata = [
+      { label: 'Date du jour', value: todayLabel },
+      { label: 'Cours', value: courseSettings.courseName || 'Non défini' },
+      { label: 'Promotion', value: uniquePromotions.join(', ') || 'Non définie' },
+      { label: 'Departement', value: uniqueDepartments.join(', ') || 'Non défini' },
+    ];
+
+    metadata.forEach((item, index) => {
+      const y = headerTop + (index * 20);
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...labelColor);
+      doc.text(`${item.label}:`, leftMargin, y);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...valueColor);
+      doc.text(item.value, leftMargin + 84, y);
+    });
 
     autoTable(doc, {
-      startY: 120,
-      head: [['Photo', 'Nom', 'Post-nom', 'Prénom', 'Matricule', 'Filière', 'Entrée', 'Sortie']],
-      body: exportRows.map(({ record, student }) => [
-        student?.photoUrl ? '' : getStudentInitials(student ?? { name: record.studentName, postNom: '', prenom: '' }),
-        student?.name ?? record.studentName,
-        student?.postNom ?? '',
-        student?.prenom ?? '',
-        record.matricule,
-        record.department,
-        record.checkIn,
-        record.checkOut ?? '',
-      ]),
+      startY: Math.max(188, logoBottomY + 26),
+      head: [['Photo', 'Nom complet', 'Matricule', 'Filière', 'Entrée', 'Sortie', 'Statut']],
+      body: reportRows.map(({ record, student, statusLabel }) => {
+        return [
+          student?.photoUrl ? '' : getStudentInitials(student ?? { name: record.studentName, postNom: '', prenom: '' }),
+          student ? formatStudentFullName(student) : record.studentName,
+          record.matricule,
+          resolveStudentFiliere(student, promotions),
+          record.checkIn,
+          record.checkOut ?? 'En attente',
+          statusLabel,
+        ];
+      }),
+      theme: 'grid',
+      margin: { left: leftMargin, right: rightMargin, bottom: 30 },
       styles: {
         fontSize: 10,
-        cellPadding: 6,
-        minCellHeight: 44,
+        cellPadding: { top: 8, right: 6, bottom: 8, left: 6 },
+        minCellHeight: 48,
         valign: 'middle',
+        textColor: [30, 41, 59],
+        lineColor: [191, 219, 254],
+        lineWidth: 0.6,
       },
       headStyles: {
-        fillColor: [32, 89, 188],
+        fillColor: [29, 78, 216],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        halign: 'center',
+        minCellHeight: 30,
+      },
+      bodyStyles: {
+        fillColor: [255, 255, 255],
+      },
+      alternateRowStyles: {
+        fillColor: [239, 246, 255],
+      },
+      columnStyles: {
+        0: { cellWidth: 64, halign: 'center' },
+        1: { cellWidth: 180 },
+        2: { cellWidth: 88, halign: 'center' },
+        3: { cellWidth: 130 },
+        4: { cellWidth: 72, halign: 'center' },
+        5: { cellWidth: 72, halign: 'center' },
+        6: { cellWidth: 76, halign: 'center' },
+      },
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.column.index === 6) {
+          if (String(data.cell.raw).toLowerCase() === 'absent') {
+            data.cell.styles.textColor = [185, 28, 28];
+            data.cell.styles.fillColor = [254, 242, 242];
+          } else {
+            data.cell.styles.textColor = [21, 128, 61];
+            data.cell.styles.fillColor = [240, 253, 244];
+          }
+          data.cell.styles.fontStyle = 'bold';
+        }
       },
       didDrawCell: (data) => {
         if (data.section !== 'body' || data.column.index !== 0) {
           return;
         }
 
-        const photoUrl = exportRows[data.row.index]?.student?.photoUrl;
+        const photoUrl = reportRows[data.row.index]?.student?.photoUrl;
         if (!photoUrl) {
           return;
         }
@@ -815,7 +1216,7 @@ export default function AdminUsers() {
     toast.success('Rapport PDF journalier généré avec succès.');
   };
 
-  const handleExportGlobalEligibilityPdf = () => {
+  const handleExportGlobalEligibilityPdf = async () => {
     if (!isCourseConfigured) {
       toast.error('Configurez d\'abord le cours avant d\'exporter le rapport global.');
       return;
@@ -827,16 +1228,17 @@ export default function AdminUsers() {
     }
 
     const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const { contentX, logoBottomY } = await addPdfUsbLogo(doc, { x: 40, y: 24, width: 56, gap: 14 });
 
     doc.setFontSize(16);
-    doc.text('Rapport global de présence et éligibilité', 40, 40);
+    doc.text('Rapport global de présence et éligibilité', contentX, 44);
     doc.setFontSize(11);
-    doc.text(`Cours: ${courseSettings.courseName}`, 40, 62);
-    doc.text(`Durée: ${courseSettings.courseDays} jour(s) - ${courseSettings.courseHours} heure(s)`, 40, 80);
-    doc.text(`Seuil d'éligibilité à l'examen: ${eligibilityThreshold}%`, 40, 98);
+    doc.text(`Cours: ${courseSettings.courseName}`, contentX, 66);
+    doc.text(`Durée: ${courseSettings.courseDays} jour(s) - ${courseSettings.courseHours} heure(s)`, contentX, 84);
+    doc.text(`Seuil d'éligibilité à l'examen: ${eligibilityThreshold}%`, contentX, 102);
 
     autoTable(doc, {
-      startY: 120,
+      startY: Math.max(126, logoBottomY + 28),
       head: [['Matricule', 'Étudiant', 'Jours présents', 'Jours du cours', '% présence', 'Éligibilité']],
       body: studentEligibilityRows.map((row) => [
         row.student.matricule,
@@ -872,8 +1274,14 @@ export default function AdminUsers() {
     try {
       if (isApiReady) {
         await resetAttendanceRecordsApi();
-        const apiAttendanceToday = await fetchAttendanceToday();
+        const [apiStudents, apiAttendanceToday, apiCours] = await Promise.all([
+          fetchStudents(),
+          fetchAttendanceToday(),
+          fetchCours(),
+        ]);
+        setStudents(apiStudents);
         setAttendanceRecords(apiAttendanceToday);
+        setCours(apiCours.map((item) => ({ id: item.id, nom: item.nom, departementId: item.departementId, programmeId: item.programmeId })));
       } else {
         setAttendanceRecords([]);
       }
@@ -977,7 +1385,7 @@ export default function AdminUsers() {
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
                   <p className="text-sm font-medium text-foreground">Étape 1: Capturer l'empreinte</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Scannez d'abord l'empreinte sur le capteur, puis complétez les informations étudiant.
+                    Capturez d'abord l'empreinte sur le capteur. Le système la réserve immédiatement, puis vous passez à l'identité de l'étudiant.
                   </p>
                   <div className="mt-3 flex flex-wrap items-center gap-3">
                     <Button
@@ -986,19 +1394,28 @@ export default function AdminUsers() {
                       className="flex items-center gap-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                     >
                       <Fingerprint className="h-4 w-4" />
-                      {connectionState !== 'connected' ? 'Capteur non connecté' : isSensorBusy ? 'Scan en cours...' : 'Scanner d\'abord l\'empreinte'}
+                      {connectionState !== 'connected' ? 'Capteur non connecté' : isSensorBusy ? 'Scan en cours...' : pendingFingerprintId ? 'Recapturer l\'empreinte' : 'Capturer l\'empreinte'}
                     </Button>
                     {pendingFingerprintId ? (
-                      <span className="inline-flex max-w-full items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 font-mono text-[11px] text-emerald-700">
-                        ID capturé: {pendingFingerprintId}
-                      </span>
+                      <>
+                        <span className="inline-flex max-w-full items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 font-mono text-[11px] text-emerald-700">
+                          ID capturé: {pendingFingerprintId}
+                        </span>
+                        <Button type="button" variant="outline" size="sm" onClick={handleClearPendingFingerprint} className="rounded-lg">
+                          Effacer l'empreinte
+                        </Button>
+                      </>
                     ) : (
                       <span className="text-xs text-muted-foreground">Aucun ID d'empreinte capturé.</span>
                     )}
                   </div>
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    Étape 2 ne s'active qu'après la capture biométrique pour garantir que l'identité enregistrée sera bien liée à cette empreinte.
+                  </p>
                 </div>
 
                 <p className="text-sm font-medium text-foreground">Étape 2: Informations étudiant</p>
+                <fieldset disabled={!isStudentIdentityStepEnabled} className={!isStudentIdentityStepEnabled ? 'opacity-60' : ''}>
                 <div className="grid gap-4 md:grid-cols-2">
                   <Input
                     placeholder="Nom"
@@ -1144,8 +1561,9 @@ export default function AdminUsers() {
                   className="flex items-center gap-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
                 >
                   <Plus className="w-4 h-4" />
-                  Enregistrer l'étudiant avec l'empreinte
+                  Étape 3: Enregistrer l'étudiant avec l'empreinte
                 </Button>
+                </fieldset>
               </div>
             </div>
 
@@ -1298,6 +1716,14 @@ export default function AdminUsers() {
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-2">
                             <Button
+                              variant="outline"
+                              className="gap-2"
+                              onClick={() => handleOpenEditStudent(student)}
+                            >
+                              <Pencil className="w-4 h-4" />
+                              Modifier
+                            </Button>
+                            <Button
                               variant={student.fingerprintRegistered ? 'outline' : 'default'}
                               className="gap-2"
                               disabled={isSensorBusy || connectionState !== 'connected' || (student.fingerprintRegistered && (student.fingerprintCount ?? 1) >= 3)}
@@ -1404,6 +1830,7 @@ export default function AdminUsers() {
             {scanDialogStep === 'prompt' && <Fingerprint className="h-10 w-10 animate-pulse text-primary" />}
             {scanDialogStep === 'loading' && <Loader2 className="h-10 w-10 animate-spin text-primary" />}
             {scanDialogStep === 'success' && <CheckCircle2 className="h-10 w-10 text-emerald-500" />}
+            {scanDialogStep === 'error' && <AlertTriangle className="h-10 w-10 text-rose-500" />}
           </div>
 
           <DialogTitle className="mt-5 text-xl font-semibold text-slate-900">
@@ -1413,6 +1840,8 @@ export default function AdminUsers() {
               (scanDialogMode === 'enrollment' ? 'Enrôlement en cours' : 'Lecture en cours')}
             {scanDialogStep === 'success' &&
               (scanDialogMode === 'enrollment' ? 'Enrôlement confirmé' : 'Scan confirmé')}
+            {scanDialogStep === 'error' &&
+              (scanDialogMode === 'enrollment' ? 'Enrôlement interrompu' : 'Lecture interrompue')}
           </DialogTitle>
 
           <DialogDescription className="mt-2 text-sm text-slate-600">
@@ -1424,6 +1853,127 @@ export default function AdminUsers() {
               <div className={`h-2.5 w-2.5 rounded-full ${scanProgress.sensorReady ? 'bg-emerald-500' : 'bg-slate-300'}`} />
               <div>
                 <p className="text-sm font-medium text-slate-800">Capteur détecté</p>
+
+          <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+            <DialogContent className="sm:max-w-[720px] p-0 gap-0 rounded-2xl border-0 shadow-2xl">
+              <div className="bg-gradient-to-br from-blue-950 via-blue-800 to-indigo-900 px-6 py-5 rounded-t-2xl">
+                <DialogTitle className="text-white text-lg font-bold">Modifier le profil étudiant</DialogTitle>
+                <DialogDescription className="mt-1 text-blue-100 text-sm">
+                  Mettez à jour la promotion et ajoutez des cours de crédit d'autres promotions après l'enregistrement initial.
+                </DialogDescription>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Input placeholder="Nom" value={editStudentForm.name} onChange={(e) => setEditStudentForm((current) => ({ ...current, name: e.target.value }))} />
+                  <Input placeholder="Post-nom" value={editStudentForm.postNom} onChange={(e) => setEditStudentForm((current) => ({ ...current, postNom: e.target.value }))} />
+                  <Input placeholder="Prénom" value={editStudentForm.prenom} onChange={(e) => setEditStudentForm((current) => ({ ...current, prenom: e.target.value }))} />
+                  <Input placeholder="Matricule" value={editStudentForm.matricule} onChange={(e) => setEditStudentForm((current) => ({ ...current, matricule: e.target.value }))} />
+                  <Input type="date" value={editStudentForm.dateNaissance} onChange={(e) => setEditStudentForm((current) => ({ ...current, dateNaissance: e.target.value }))} />
+                  <Input placeholder="Lieu de naissance" value={editStudentForm.lieuNaissance} onChange={(e) => setEditStudentForm((current) => ({ ...current, lieuNaissance: e.target.value }))} />
+                  <Input placeholder="Téléphone" value={editStudentForm.telephone} onChange={(e) => setEditStudentForm((current) => ({ ...current, telephone: e.target.value }))} />
+                  <Select value={editStudentForm.status} onValueChange={(value: 'ACTIF' | 'INACTIF' | 'SUSPENDU' | 'DIPLOME' | 'EXCLU') => setEditStudentForm((current) => ({ ...current, status: value }))}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Statut académique" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ACTIF">Actif</SelectItem>
+                      <SelectItem value="INACTIF">Inactif</SelectItem>
+                      <SelectItem value="SUSPENDU">Suspendu</SelectItem>
+                      <SelectItem value="DIPLOME">Diplômé</SelectItem>
+                      <SelectItem value="EXCLU">Exclu</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={editStudentForm.promotionId || 'none'} onValueChange={(value) => setEditStudentForm((current) => ({ ...current, promotionId: value === 'none' ? '' : value }))}>
+                    <SelectTrigger className="md:col-span-2 w-full">
+                      <SelectValue placeholder="Promotion" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sélectionner une promotion</SelectItem>
+                      {promotions.map((item) => (
+                        <SelectItem key={item.id} value={String(item.id)}>{item.niveau}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedEditPromotion && (
+                    <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                      <div>
+                        <p className="text-sm font-medium text-slate-700">Cours inclus automatiquement</p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          Cette promotion rattache automatiquement {selectedEditPromotion.coursIds.length} cours à l'étudiant.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedEditPromotion.coursIds.map((courseId) => {
+                          const course = cours.find((item) => item.id === courseId);
+                          return (
+                            <span key={courseId} className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700">
+                              {course?.nom ?? `Cours #${courseId}`}
+                            </span>
+                          );
+                        })}
+                      </div>
+                      {editCreditCourseOptions.length > 0 && (
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium text-slate-700">Cours de crédit d'autres promotions</Label>
+                          <div className="grid gap-2 md:grid-cols-2">
+                            {editCreditCourseOptions.map((course) => {
+                              const checked = editStudentForm.creditCoursIds.includes(String(course.id));
+                              return (
+                                <label key={course.id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                                  <Checkbox
+                                    checked={checked}
+                                    onCheckedChange={(value) => {
+                                      const isChecked = value === true;
+                                      setEditStudentForm((current) => ({
+                                        ...current,
+                                        creditCoursIds: isChecked
+                                          ? [...current.creditCoursIds, String(course.id)]
+                                          : current.creditCoursIds.filter((item) => item !== String(course.id)),
+                                      }));
+                                    }}
+                                  />
+                                  <span>{course.nom}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <Input className="md:col-span-2" placeholder="Adresse" value={editStudentForm.adresse} onChange={(e) => setEditStudentForm((current) => ({ ...current, adresse: e.target.value }))} />
+                  <div
+                    className="col-span-full flex items-center gap-4 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-colors"
+                    onClick={() => editPhotoInputRef.current?.click()}
+                  >
+                    {editPhotoPreview ? (
+                      <img src={editPhotoPreview} alt="Aperçu" className="h-14 w-14 rounded-full object-cover border-2 border-primary/30 shrink-0" />
+                    ) : (
+                      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-slate-200 text-slate-400">
+                        <ImagePlus className="h-6 w-6" />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-700">
+                        {editPhotoPreview ? 'Photo sélectionnée — cliquer pour changer' : 'Importer une photo (optionnel)'}
+                      </p>
+                      <p className="text-xs text-slate-400">JPG, PNG, WEBP — max recommandé 2 Mo</p>
+                    </div>
+                    <input ref={editPhotoInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleEditPhotoFile(e.target.files?.[0])} />
+                  </div>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <Button variant="outline" className="flex-1" onClick={() => setEditDialogOpen(false)} disabled={savingStudentEdit}>
+                    Annuler
+                  </Button>
+                  <Button className="flex-1 bg-blue-600 hover:bg-blue-700" onClick={handleUpdateStudentProfile} disabled={savingStudentEdit}>
+                    {savingStudentEdit ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Pencil className="w-4 h-4 mr-1" />}
+                    Enregistrer les modifications
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
                 <p className="text-xs text-slate-500">Connexion du capteur validée et appareil prêt.</p>
               </div>
             </div>

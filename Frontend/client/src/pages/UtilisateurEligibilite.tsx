@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { fetchEligibilityForCours } from '@/lib/adminApi';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { addPdfUsbLogo } from '@/lib/pdf';
 
 interface EligibilityRow {
   studentId: string;
@@ -17,16 +18,17 @@ interface EligibilityRow {
   eligible: boolean;
 }
 
-function generateEligibilityPdf(rows: EligibilityRow[], coursName: string) {
+async function generateEligibilityPdf(rows: EligibilityRow[], coursName: string) {
   // L'export PDF permet de partager l'état d'éligibilité sans dépendre de l'interface web.
   const doc = new jsPDF();
+  const { contentX, logoBottomY } = await addPdfUsbLogo(doc, { x: 14, y: 10, width: 20, gap: 6 });
   doc.setFontSize(16);
-  doc.text(`Éligibilité à l'examen — ${coursName}`, 14, 18);
+  doc.text(`Éligibilité à l'examen — ${coursName}`, contentX, 18);
   doc.setFontSize(11);
-  doc.text(`Généré le : ${new Intl.DateTimeFormat('fr-FR').format(new Date())}`, 14, 28);
+  doc.text(`Généré le : ${new Intl.DateTimeFormat('fr-FR').format(new Date())}`, contentX, 28);
 
   autoTable(doc, {
-    startY: 36,
+    startY: Math.max(36, logoBottomY + 8),
     head: [['Nom', 'Matricule', 'Jours présents', 'Total jours', 'Pourcentage', 'Éligible']],
     body: rows.map(r => [
       r.studentName,

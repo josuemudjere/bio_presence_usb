@@ -23,6 +23,8 @@ function toIsoDate(date: Date): string {
   return date.toISOString().split('T')[0];
 }
 
+const TEACHER_DASHBOARD_REFRESH_INTERVAL_MS = 15000;
+
 export default function UtilisateurTableauDeBord() {
   // Le tableau de bord enseignant reprend les chiffres utiles sans exposer toute la complexité admin.
   const { user } = useAuth();
@@ -150,8 +152,23 @@ export default function UtilisateurTableauDeBord() {
 
     void loadStats();
 
+    const refreshStatsIfVisible = () => {
+      if (!mounted || document.visibilityState !== 'visible') {
+        return;
+      }
+
+      void loadStats();
+    };
+
+    const intervalId = window.setInterval(refreshStatsIfVisible, TEACHER_DASHBOARD_REFRESH_INTERVAL_MS);
+    window.addEventListener('focus', refreshStatsIfVisible);
+    document.addEventListener('visibilitychange', refreshStatsIfVisible);
+
     return () => {
       mounted = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', refreshStatsIfVisible);
+      document.removeEventListener('visibilitychange', refreshStatsIfVisible);
     };
   }, [selectedCoursId, todayIso, weekStart, weekEnd]);
 
