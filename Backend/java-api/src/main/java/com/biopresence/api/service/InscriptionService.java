@@ -1,10 +1,11 @@
 package com.biopresence.api.service;
 
+import com.biopresence.api.Repositories.InscriptionRepository;
 import com.biopresence.api.entity.Cours;
 import com.biopresence.api.entity.Etudiant;
 import com.biopresence.api.entity.Inscription;
 import com.biopresence.api.entity.StatutInscription;
-import com.biopresence.api.persistence.InscriptionRepository;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

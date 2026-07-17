@@ -1,4 +1,5 @@
 import type { AttendanceRecord, Cours, CourseSettings, Departement, Programme, Promotion, Student, Utilisateur } from '@/lib/adminData';
+import { getStoredAuthToken } from '@/contexts/AuthContext';
 import { getApiBaseUrl } from '@/lib/apiBase';
 import { parseFingerprintIds } from '@/lib/utils';
 
@@ -134,10 +135,12 @@ interface ApiPromotion {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // Tous les appels admin passent ici pour centraliser les en-têtes et le traitement d'erreur.
+  const token = getStoredAuthToken();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.headers ?? {}),
     },
   });

@@ -15,6 +15,7 @@ import autoTable from 'jspdf-autotable';
 import { addPdfUsbLogo } from '@/lib/pdf';
 
 const TEACHER_SELECTED_COURSE_KEY = 'biopresence_teacher_selected_course';
+const TEACHER_REPORTS_REFRESH_INTERVAL_MS = 15000;
 
 function formatDate(isoDate: string): string {
   const [y, m, d] = isoDate.split('-');
@@ -333,6 +334,49 @@ export default function UtilisateurRapports() {
   const [courseStudents, setCourseStudents] = useState<Student[]>([]);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
 
+  const loadAssignedCourses = async (mounted?: { current: boolean }) => {
+    try {
+      const [allCourses, allPromotions] = await Promise.all([fetchCours(), fetchPromotions()]);
+      if (mounted && !mounted.current) {
+        return;
+      }
+
+      setAssignedCourses(allCourses.filter((course) => assignedCourseIds.includes(course.id)));
+      setPromotions(allPromotions);
+    } catch {
+      if (mounted && !mounted.current) {
+        return;
+      }
+
+      setAssignedCourses([]);
+      setPromotions([]);
+    }
+  };
+
+  const loadCourseStudents = async (mounted?: { current: boolean }, coursId = selectedCoursId) => {
+    if (!coursId) {
+      if (!mounted || mounted.current) {
+        setCourseStudents([]);
+      }
+      return;
+    }
+
+    try {
+      const students = await fetchStudentsForCours(coursId);
+      if (mounted && !mounted.current) {
+        return;
+      }
+
+      setCourseStudents(students);
+    } catch {
+      if (mounted && !mounted.current) {
+        return;
+      }
+
+      setCourseStudents([]);
+    }
+  };
+
   useEffect(() => {
     // Je restaure le dernier cours choisi si l'utilisateur y a encore accès.
     const savedCourseId = Number(localStorage.getItem(TEACHER_SELECTED_COURSE_KEY));
@@ -358,59 +402,60 @@ export default function UtilisateurRapports() {
     // Je récupère le catalogue complet puis je filtre sur les cours réellement assignés.
     let mounted = true;
 
-    const loadAssignedCourses = async () => {
-      try {
-        const [allCourses, allPromotions] = await Promise.all([fetchCours(), fetchPromotions()]);
-        if (!mounted) {
-          return;
-        }
-        setAssignedCourses(allCourses.filter((course) => assignedCourseIds.includes(course.id)));
-        setPromotions(allPromotions);
-      } catch {
-        if (!mounted) {
-          return;
-        }
-        setAssignedCourses([]);
-        setPromotions([]);
-      }
-    };
-
-    void loadAssignedCourses();
+    void loadAssignedCourses({ current: mounted });
 
     return () => {
       mounted = false;
     };
-  }, [user?.id]);
+  }, [assignedCourseIds, user?.id, user?.coursId, user?.coursIds]);
+
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+
+      void loadAssignedCourses();
+    };
+
+    const intervalId = window.setInterval(refreshIfVisible, TEACHER_REPORTS_REFRESH_INTERVAL_MS);
+    window.addEventListener('focus', refreshIfVisible);
+    document.addEventListener('visibilitychange', refreshIfVisible);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', refreshIfVisible);
+      document.removeEventListener('visibilitychange', refreshIfVisible);
+    };
+  }, [assignedCourseIds, user?.id, user?.coursId, user?.coursIds]);
 
   useEffect(() => {
     let mounted = true;
 
-    const loadCourseStudents = async () => {
-      if (!selectedCoursId) {
-        setCourseStudents([]);
-        return;
-      }
-
-      try {
-        const students = await fetchStudentsForCours(selectedCoursId);
-        if (!mounted) {
-          return;
-        }
-
-        setCourseStudents(students);
-      } catch {
-        if (!mounted) {
-          return;
-        }
-
-        setCourseStudents([]);
-      }
-    };
-
-    void loadCourseStudents();
+    void loadCourseStudents({ current: mounted });
 
     return () => {
       mounted = false;
+    };
+  }, [selectedCoursId]);
+
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+
+      void loadCourseStudents();
+    };
+
+    const intervalId = window.setInterval(refreshIfVisible, TEACHER_REPORTS_REFRESH_INTERVAL_MS);
+    window.addEventListener('focus', refreshIfVisible);
+    document.addEventListener('visibilitychange', refreshIfVisible);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', refreshIfVisible);
+      document.removeEventListener('visibilitychange', refreshIfVisible);
     };
   }, [selectedCoursId]);
 

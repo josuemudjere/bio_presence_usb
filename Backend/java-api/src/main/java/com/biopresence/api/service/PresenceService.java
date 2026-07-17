@@ -1,5 +1,7 @@
 package com.biopresence.api.service;
 
+import com.biopresence.api.Repositories.JustificatifRepository;
+import com.biopresence.api.Repositories.PresenceRepository;
 import com.biopresence.api.dto.JustificatifDepartAnticipeRequete;
 import com.biopresence.api.dto.PresenceReponse;
 import com.biopresence.api.dto.PresenceManuelleRequete;
@@ -14,8 +16,7 @@ import com.biopresence.api.entity.StatutPresence;
 import com.biopresence.api.entity.ParametresCours;
 import com.biopresence.api.entity.Etudiant;
 import com.biopresence.api.exception.ExceptionIntrouvable;
-import com.biopresence.api.persistence.JustificatifRepository;
-import com.biopresence.api.persistence.PresenceRepository;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;

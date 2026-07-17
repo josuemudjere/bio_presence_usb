@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, CheckCircle2, Clock3, Loader2, ScanLine, Usb, Unplug, Users } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,8 @@ import { fetchAttendanceForCours, fetchAttendanceWeekForCours, fetchCours, fetch
 import type { AttendanceRecord, Cours, Student } from '@/lib/adminData';
 import { serialSensor, type ConnectionState } from '@/lib/serialSensor';
 import { toast } from 'sonner';
+
+const TEACHER_SELECTED_COURSE_KEY = 'biopresence_teacher_selected_course';
 
 function getMondayOfWeek(date: Date): Date {
   const value = new Date(date);
@@ -35,9 +37,13 @@ export default function UtilisateurTableauDeBord() {
   const [todayRecords, setTodayRecords] = useState<AttendanceRecord[]>([]);
   const [weekRecords, setWeekRecords] = useState<AttendanceRecord[]>([]);
   const [scheduleForm, setScheduleForm] = useState({ startTime: '', endTime: '' });
+  const [scheduleDirty, setScheduleDirty] = useState(false);
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [loading, setLoading] = useState(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>(() => serialSensor.state);
+  const startTimeInputRef = useRef<HTMLInputElement>(null);
+  const endTimeInputRef = useRef<HTMLInputElement>(null);
+  const lastScheduleCourseIdRef = useRef<number | null>(null);
   const serialSupportError = serialSensor.getSupportError();
 
   const todayLabel = useMemo(
@@ -72,18 +78,42 @@ export default function UtilisateurTableauDeBord() {
   const selectedCourse = assignedCourses.find((course) => course.id === selectedCoursId) ?? null;
 
   useEffect(() => {
-    setScheduleForm({
+    const currentCourseId = selectedCourse?.id ?? null;
+    const nextSchedule = {
       startTime: selectedCourse?.heureDebut?.slice(0, 5) ?? '',
       endTime: selectedCourse?.heureFin?.slice(0, 5) ?? '',
-    });
-  }, [selectedCourse?.id, selectedCourse?.heureDebut, selectedCourse?.heureFin]);
+    };
+    const courseChanged = lastScheduleCourseIdRef.current !== currentCourseId;
+
+    if (courseChanged || !scheduleDirty) {
+      setScheduleForm(nextSchedule);
+      setScheduleDirty(false);
+    }
+
+    lastScheduleCourseIdRef.current = currentCourseId;
+  }, [selectedCourse?.id, selectedCourse?.heureDebut, selectedCourse?.heureFin, scheduleDirty]);
 
   useEffect(() => serialSensor.onConnectionChange(setConnectionState), []);
 
   useEffect(() => {
-    // Par défaut, je sélectionne le premier cours affecté à l'enseignant connecté.
+    // Je conserve le cours mémorisé s'il fait encore partie des affectations en cours.
+    const savedCourseId = Number(localStorage.getItem(TEACHER_SELECTED_COURSE_KEY));
+    if (Number.isFinite(savedCourseId) && assignedCourseIds.includes(savedCourseId)) {
+      setSelectedCoursId(savedCourseId);
+      return;
+    }
+
     setSelectedCoursId(assignedCourseIds[0] ?? null);
-  }, [user?.id]);
+  }, [user?.id, user?.coursIds, user?.coursId]);
+
+  useEffect(() => {
+    if (selectedCoursId == null) {
+      localStorage.removeItem(TEACHER_SELECTED_COURSE_KEY);
+      return;
+    }
+
+    localStorage.setItem(TEACHER_SELECTED_COURSE_KEY, String(selectedCoursId));
+  }, [selectedCoursId]);
 
   useEffect(() => {
     // Le catalogue complet est filtré côté client pour n'afficher que les cours assignés.
@@ -213,29 +243,34 @@ export default function UtilisateurTableauDeBord() {
     },
   ];
 
-  const canSaveSchedule = selectedCourse !== null && scheduleForm.startTime !== '' && scheduleForm.endTime !== '';
+  const canSaveSchedule = selectedCourse !== null;
 
   const handleSaveSchedule = async () => {
     if (!selectedCourse) {
       return;
     }
 
-    if (!scheduleForm.startTime || !scheduleForm.endTime) {
+    const effectiveStartTime = startTimeInputRef.current?.value || scheduleForm.startTime;
+    const effectiveEndTime = endTimeInputRef.current?.value || scheduleForm.endTime;
+
+    if (!effectiveStartTime || !effectiveEndTime) {
       toast.error('Renseignez les heures de début et de fin du cours.');
       return;
     }
 
-    if (scheduleForm.endTime <= scheduleForm.startTime) {
+    if (effectiveEndTime <= effectiveStartTime) {
       toast.error('L heure de fin doit être postérieure à l heure de début.');
       return;
     }
+
+    setScheduleForm({ startTime: effectiveStartTime, endTime: effectiveEndTime });
 
     setSavingSchedule(true);
     try {
       const updatedCourse = await updateCours(selectedCourse.id, {
         ...selectedCourse,
-        heureDebut: scheduleForm.startTime,
-        heureFin: scheduleForm.endTime,
+        heureDebut: effectiveStartTime,
+        heureFin: effectiveEndTime,
       });
 
       setAssignedCourses((current) => current.map((course) => (
@@ -251,6 +286,12 @@ export default function UtilisateurTableauDeBord() {
         startTime: updatedCourse.heureDebut ?? '',
         endTime: updatedCourse.heureFin ?? '',
       });
+
+      setScheduleForm({
+        startTime: updatedCourse.heureDebut?.slice(0, 5) ?? '',
+        endTime: updatedCourse.heureFin?.slice(0, 5) ?? '',
+      });
+      setScheduleDirty(false);
 
       toast.success('Les horaires du cours actif ont été mis à jour.');
     } catch (error) {
@@ -373,15 +414,23 @@ export default function UtilisateurTableauDeBord() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Modifier les horaires</p>
                     <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
                       <Input
+                        ref={startTimeInputRef}
                         type="time"
                         value={scheduleForm.startTime}
-                        onChange={(event) => setScheduleForm((current) => ({ ...current, startTime: event.target.value }))}
+                        onChange={(event) => {
+                          setScheduleDirty(true);
+                          setScheduleForm((current) => ({ ...current, startTime: event.target.value }));
+                        }}
                         disabled={!selectedCourse || savingSchedule}
                       />
                       <Input
+                        ref={endTimeInputRef}
                         type="time"
                         value={scheduleForm.endTime}
-                        onChange={(event) => setScheduleForm((current) => ({ ...current, endTime: event.target.value }))}
+                        onChange={(event) => {
+                          setScheduleDirty(true);
+                          setScheduleForm((current) => ({ ...current, endTime: event.target.value }));
+                        }}
                         disabled={!selectedCourse || savingSchedule}
                       />
                       <Button onClick={handleSaveSchedule} disabled={!canSaveSchedule || savingSchedule}>

@@ -1,22 +1,30 @@
 package com.biopresence.api.service;
 
+import com.biopresence.api.Repositories.AdministrateurRepository;
 import com.biopresence.api.dto.AdministrateurReponse;
 import com.biopresence.api.entity.Administrateur;
 import com.biopresence.api.exception.ExceptionIntrouvable;
-import com.biopresence.api.persistence.AdministrateurRepository;
 import com.biopresence.api.security.ConnexionRequete;
 import com.biopresence.api.security.MajProfilRequete;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
 public class AdministrateurService {
 
-  private final AdministrateurRepository adminRepository;
+  public static final String DEFAULT_ADMIN_EMAIL = "admin@usb.org";
+  public static final String DEFAULT_ADMIN_PASSWORD = "Josue2026";
+  public static final String LEGACY_ADMIN_EMAIL = "admin@university.edu";
 
-  public AdministrateurService(AdministrateurRepository adminRepository) {
+  private final AdministrateurRepository adminRepository;
+  private final PasswordEncoder passwordEncoder;
+
+  public AdministrateurService(AdministrateurRepository adminRepository, PasswordEncoder passwordEncoder) {
     this.adminRepository = adminRepository;
+    this.passwordEncoder = passwordEncoder;
   }
 
   public AdministrateurReponse login(ConnexionRequete request) {
@@ -24,7 +32,7 @@ public class AdministrateurService {
     Administrateur admin = adminRepository.findByEmail(request.email())
         .orElseThrow(() -> new RuntimeException("Identifiants invalides"));
 
-    if (!admin.password.equals(request.password())) {
+    if (!(passwordEncoder.matches(request.password(), admin.password) || admin.password.equals(request.password()))) {
       throw new RuntimeException("Identifiants invalides");
     }
 
@@ -33,13 +41,13 @@ public class AdministrateurService {
 
   public AdministrateurReponse getById(UUID id) {
     // Retourne le profil administrateur demandé ou échoue avec un message métier clair.
-    Administrateur admin = adminRepository.findById(id)
+    Administrateur admin = adminRepository.findById(Objects.requireNonNull(id, "id"))
         .orElseThrow(() -> new ExceptionIntrouvable("Administrateur introuvable"));
     return toResponse(admin);
   }
 
   public AdministrateurReponse updateProfile(UUID id, MajProfilRequete request) {
-    Administrateur admin = adminRepository.findById(id)
+    Administrateur admin = adminRepository.findById(Objects.requireNonNull(id, "id"))
         .orElseThrow(() -> new ExceptionIntrouvable("Administrateur introuvable"));
 
     if (request.name() != null && !request.name().isBlank()) {
@@ -56,22 +64,22 @@ public class AdministrateurService {
       admin.email = request.email();
     }
 
-    adminRepository.save(admin);
+    adminRepository.save(Objects.requireNonNull(admin, "admin"));
     return toResponse(admin);
   }
 
   public AdministrateurReponse updatePassword(UUID id, String currentPassword, String newPassword) {
-    Administrateur admin = adminRepository.findById(id)
+    Administrateur admin = adminRepository.findById(Objects.requireNonNull(id, "id"))
         .orElseThrow(() -> new ExceptionIntrouvable("Administrateur introuvable"));
 
-    if (!admin.password.equals(currentPassword)) {
+    if (!(passwordEncoder.matches(currentPassword, admin.password) || admin.password.equals(currentPassword))) {
       throw new RuntimeException("Mot de passe actuel incorrect");
     }
     if (newPassword == null || newPassword.length() < 6) {
       throw new RuntimeException("Le nouveau mot de passe doit contenir au moins 6 caractères");
     }
 
-    admin.password = newPassword;
+    admin.password = passwordEncoder.encode(newPassword);
     adminRepository.save(admin);
     return toResponse(admin);
   }
@@ -82,21 +90,24 @@ public class AdministrateurService {
 
   public void seedDefault() {
     // Migration : mettre à jour l'ancien admin par défaut si les credentials ont changé
-    adminRepository.findByEmail("admin@university.edu").ifPresent(old -> {
-      old.email = "admin@usb.org";
-      old.password = "Josue2026";
+    adminRepository.findByEmail(LEGACY_ADMIN_EMAIL).ifPresent(old -> {
+      old.email = DEFAULT_ADMIN_EMAIL;
+      old.password = passwordEncoder.encode(DEFAULT_ADMIN_PASSWORD);
       adminRepository.save(old);
     });
     // Migration : mettre à jour le mot de passe si l'admin existe déjà avec l'ancien mot de passe
-    adminRepository.findByEmail("admin@usb.org").ifPresent(existing -> {
-      if (!"Josue2026".equals(existing.password)) {
-        existing.password = "Josue2026";
+    adminRepository.findByEmail(DEFAULT_ADMIN_EMAIL).ifPresent(existing -> {
+      if (!(passwordEncoder.matches(DEFAULT_ADMIN_PASSWORD, existing.password) || DEFAULT_ADMIN_PASSWORD.equals(existing.password))) {
+        existing.password = passwordEncoder.encode(DEFAULT_ADMIN_PASSWORD);
+        adminRepository.save(existing);
+      } else if (DEFAULT_ADMIN_PASSWORD.equals(existing.password)) {
+        existing.password = passwordEncoder.encode(DEFAULT_ADMIN_PASSWORD);
         adminRepository.save(existing);
       }
     });
     // Seed si aucun admin n'existe
     if (!existsAny()) {
-      adminRepository.save(new Administrateur("Administrateur", "admin@usb.org", "Josue2026"));
+      adminRepository.save(new Administrateur("Administrateur", DEFAULT_ADMIN_EMAIL, passwordEncoder.encode(DEFAULT_ADMIN_PASSWORD)));
     }
   }
 

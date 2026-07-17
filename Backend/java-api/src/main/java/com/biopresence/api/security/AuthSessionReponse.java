@@ -11,6 +11,7 @@ public record AuthSessionReponse(
   String photoUrl,
   String role,
   Long coursId,
-  List<Long> coursIds
+  List<Long> coursIds,
+  String token
 ) {
 }

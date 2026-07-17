@@ -18,3 +18,7 @@ app:
     allowed-origins:
       - http://localhost:5173
       - http://localhost:3000
+  security:
+    jwt:
+      secret: ${APP_SECURITY_JWT_SECRET:QmlvUHJlc2VuY2UtZGV2LXNlY3JldC1jaGFuZ2V6LW1vaS1pbXBlcmF0aXZlbWVudC0xMjM0NTY3ODkw}
+      expiration-ms: ${APP_SECURITY_JWT_EXPIRATION_MS:86400000}

@@ -1,6 +1,8 @@
 package com.biopresence.api.service;
 
 import com.biopresence.api.dto.EtudiantRequete;
+import com.biopresence.api.Repositories.EmpreinteDigitaleRepository;
+import com.biopresence.api.Repositories.EtudiantRepository;
 import com.biopresence.api.dto.EtudiantReponse;
 import com.biopresence.api.dto.ReservationEmpreinteReponse;
 import com.biopresence.api.entity.Cours;
@@ -10,8 +12,7 @@ import com.biopresence.api.entity.Etudiant;
 import com.biopresence.api.entity.Promotion;
 import com.biopresence.api.entity.StatutEtudiant;
 import com.biopresence.api.exception.ExceptionIntrouvable;
-import com.biopresence.api.persistence.EmpreinteDigitaleRepository;
-import com.biopresence.api.persistence.EtudiantRepository;
+
 import org.springframework.stereotype.Service;
 import org.springframework.data.domain.Sort;
 import org.springframework.transaction.annotation.Transactional;

@@ -1,10 +1,11 @@
 package com.biopresence.api.service;
 
 import com.biopresence.api.dto.CoursRequete;
+import com.biopresence.api.Repositories.CoursRepository;
 import com.biopresence.api.dto.CoursReponse;
 import com.biopresence.api.entity.Cours;
 import com.biopresence.api.exception.ExceptionIntrouvable;
-import com.biopresence.api.persistence.CoursRepository;
+
 import org.springframework.stereotype.Service;
 
 import java.util.List;

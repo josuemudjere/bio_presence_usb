@@ -1,10 +1,11 @@
 package com.biopresence.api.service;
 
 import com.biopresence.api.dto.ParametresCoursRequete;
+import com.biopresence.api.Repositories.ParametresCoursRepository;
 import com.biopresence.api.dto.ParametresCoursReponse;
 import com.biopresence.api.entity.Cours;
 import com.biopresence.api.entity.ParametresCours;
-import com.biopresence.api.persistence.ParametresCoursRepository;
+
 import org.springframework.stereotype.Service;
 
 @Service

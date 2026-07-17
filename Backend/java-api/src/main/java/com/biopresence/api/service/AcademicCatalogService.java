@@ -1,12 +1,13 @@
 package com.biopresence.api.service;
 
+import com.biopresence.api.Repositories.DepartementRepository;
+import com.biopresence.api.Repositories.ProgrammeRepository;
 import com.biopresence.api.dto.DepartementReponse;
 import com.biopresence.api.dto.ProgrammeReponse;
 import com.biopresence.api.entity.Departement;
 import com.biopresence.api.entity.Programme;
 import com.biopresence.api.exception.ExceptionIntrouvable;
-import com.biopresence.api.persistence.DepartementRepository;
-import com.biopresence.api.persistence.ProgrammeRepository;
+
 import org.springframework.stereotype.Service;
 
 import java.util.List;

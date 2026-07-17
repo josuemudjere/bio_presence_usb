@@ -51,3 +51,61 @@ Si elles sont absentes, elle retombe sur ces variables applicatives:
 - `DB_PASSWORD`
 
 Sans `DB_PASSWORD`, Spring tente une connexion MySQL sans mot de passe, ce qui provoque l'erreur `Access denied for user 'root'@'localhost' (using password: NO)` si votre serveur MySQL protege le compte `root`.
+
+## Initialisation du compte administrateur
+Pour un deploiement sur serveur distant, un script SQL idempotent est fourni dans `src/main/resources/sql/init-admin.sql`.
+
+Il initialise le compte administrateur par defaut si aucun compte `admin@usb.org` n'existe, et remplace aussi un ancien mot de passe en clair par une version bcrypt.
+
+Identifiants de connexion par defaut:
+- Email: `admin@usb.org`
+- Mot de passe: `Josue2026`
+
+Le mot de passe est stocke hache en bcrypt dans la base.
+
+Execution manuelle possible sur le serveur MySQL:
+
+```sql
+UPDATE administrateurs
+SET email = 'admin@usb.org',
+      password = '$2a$10$iq6q5GcbgdiPZeHFBwH0feU0Ne6HlnETiDUuBkBnO.CPHAvSXBV7i',
+      niveau_acces = 'GLOBAL',
+      permissions = 'GERER_UTILISATEURS,GERER_EMPREINTES,CONSULTER_LOGS'
+WHERE email = 'admin@university.edu';
+
+UPDATE administrateurs
+SET password = '$2a$10$iq6q5GcbgdiPZeHFBwH0feU0Ne6HlnETiDUuBkBnO.CPHAvSXBV7i',
+      niveau_acces = COALESCE(niveau_acces, 'GLOBAL'),
+      permissions = COALESCE(permissions, 'GERER_UTILISATEURS,GERER_EMPREINTES,CONSULTER_LOGS')
+WHERE email = 'admin@usb.org'
+   AND (password = 'Josue2026' OR password IS NULL OR password = '');
+
+INSERT INTO administrateurs (
+   id,
+   name,
+   prenom,
+   email,
+   password,
+   photo_url,
+   niveau_acces,
+   permissions,
+   date_creation,
+   derniere_connexion
+)
+SELECT
+   UUID(),
+   'Administrateur',
+   NULL,
+   'admin@usb.org',
+   '$2a$10$iq6q5GcbgdiPZeHFBwH0feU0Ne6HlnETiDUuBkBnO.CPHAvSXBV7i',
+   NULL,
+   'GLOBAL',
+   'GERER_UTILISATEURS,GERER_EMPREINTES,CONSULTER_LOGS',
+   NOW(),
+   NULL
+WHERE NOT EXISTS (
+   SELECT 1
+   FROM administrateurs
+   WHERE email = 'admin@usb.org'
+);
+```

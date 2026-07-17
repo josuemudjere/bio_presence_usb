@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ATTENDANCE_WINDOW_CLOSED_MESSAGE } from '@/const';
-import { loadCourseSettings, type Cours, type CourseSettings, type DepartureReason, type Student } from '@/lib/adminData';
+import { type Cours, type DepartureReason, type Student } from '@/lib/adminData';
 import { createManualAttendance, fetchCours, fetchStudentsForCours, saveDepartureJustification, scanAttendanceForCours } from '@/lib/adminApi';
 import { getBiometricErrorMessage, notifyRejectedFingerprintScan, scanFingerprintFromSensor } from '@/lib/biometricSensor';
 import { serialSensor, type ConnectionState } from '@/lib/serialSensor';
@@ -136,7 +136,6 @@ export default function UtilisateurPresence() {
   const [students, setStudents] = useState<Student[]>([]);
   const [assignedCourses, setAssignedCourses] = useState<Cours[]>([]);
   const [selectedCoursId, setSelectedCoursId] = useState<number | null>(assignedCourseIds[0] ?? null);
-  const [courseSettings, setCourseSettings] = useState<CourseSettings>(() => loadCourseSettings());
   const [isApiReady, setIsApiReady] = useState(false);
   const [sensorState, setSensorState] = useState<SensorState>('idle');
   const [isListening, setIsListening] = useState(false);
@@ -278,7 +277,7 @@ export default function UtilisateurPresence() {
     setManualEntryError('');
     setManualEntryOpen(false);
 
-    const selectedCourseEndTime = selectedCourse?.heureFin || courseSettings.endTime;
+    const selectedCourseEndTime = selectedCourse?.heureFin;
     if (attendanceType === 'exit' && selectedCourseEndTime && checkOutTime && checkOutTime < selectedCourseEndTime) {
       setEarlyDeparturePending({
         attendanceId: attendance.id,
@@ -486,7 +485,7 @@ export default function UtilisateurPresence() {
       });
       setSensorState('success');
 
-      const selectedCourseEndTime = selectedCourse?.heureFin || courseSettings.endTime;
+      const selectedCourseEndTime = selectedCourse?.heureFin;
       // Une sortie avant l'heure de fin prévue ouvre une justification complémentaire.
       if (attendanceType === 'exit' && selectedCourseEndTime && checkOutTime && checkOutTime < selectedCourseEndTime) {
         setEarlyDeparturePending({
@@ -798,7 +797,7 @@ export default function UtilisateurPresence() {
             <DialogTitle className="text-lg font-bold">Départ anticipé détecté</DialogTitle>
             <p className="mt-1 text-sm text-white/90">
               {earlyDeparturePending?.studentName} quitte avant
-              {(selectedCourse?.heureFin || courseSettings.endTime) ? ` ${selectedCourse?.heureFin || courseSettings.endTime}` : ' la fin du cours'}.
+              {selectedCourse?.heureFin ? ` ${selectedCourse.heureFin}` : ' la fin du cours'}.
             </p>
           </div>
           <div className="px-6 py-5 space-y-3">

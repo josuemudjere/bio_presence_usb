@@ -646,7 +646,7 @@ export default function AdminUsers() {
           confirmed: true,
           message: reservation.message,
         }));
-        toast.success('Empreinte capturée et réservée dans la base. Complétez maintenant les informations étudiant.');
+        toast.success('Empreinte capturée');
         await waitForScanFeedback();
         return;
       }
@@ -1385,7 +1385,6 @@ export default function AdminUsers() {
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
                   <p className="text-sm font-medium text-foreground">Étape 1: Capturer l'empreinte</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Capturez d'abord l'empreinte sur le capteur. Le système la réserve immédiatement, puis vous passez à l'identité de l'étudiant.
                   </p>
                   <div className="mt-3 flex flex-wrap items-center gap-3">
                     <Button
@@ -1410,7 +1409,6 @@ export default function AdminUsers() {
                     )}
                   </div>
                   <p className="mt-3 text-xs text-muted-foreground">
-                    Étape 2 ne s'active qu'après la capture biométrique pour garantir que l'identité enregistrée sera bien liée à cette empreinte.
                   </p>
                 </div>
 
@@ -1476,51 +1474,33 @@ export default function AdminUsers() {
                       ))}
                     </SelectContent>
                   </Select>
-                  {selectedPromotion && (
+                  {selectedPromotion && creditCourseOptions.length > 0 && (
                     <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
-                      <div>
-                        <p className="text-sm font-medium text-slate-700">Cours inclus automatiquement</p>
-                        <p className="text-xs text-slate-500 mt-1">
-                          Cette promotion rattache automatiquement {selectedPromotion.coursIds.length} cours à l'étudiant.
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedPromotion.coursIds.map((courseId) => {
-                          const course = cours.find((item) => item.id === courseId);
-                          return (
-                            <span key={courseId} className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700">
-                              {course?.nom ?? `Cours #${courseId}`}
-                            </span>
-                          );
-                        })}
-                      </div>
-                      {creditCourseOptions.length > 0 && (
-                        <div className="space-y-2">
-                          <Label className="text-sm font-medium text-slate-700">Cours de crédit à ajouter</Label>
-                          <div className="grid gap-2 md:grid-cols-2">
-                            {creditCourseOptions.map((course) => {
-                              const checked = studentForm.creditCoursIds.includes(String(course.id));
-                              return (
-                                <label key={course.id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
-                                  <Checkbox
-                                    checked={checked}
-                                    onCheckedChange={(value) => {
-                                      const isChecked = value === true;
-                                      setStudentForm((current) => ({
-                                        ...current,
-                                        creditCoursIds: isChecked
-                                          ? [...current.creditCoursIds, String(course.id)]
-                                          : current.creditCoursIds.filter((item) => item !== String(course.id)),
-                                      }));
-                                    }}
-                                  />
-                                  <span>{course.nom}</span>
-                                </label>
-                              );
-                            })}
-                          </div>
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium text-slate-700">Cours de crédit à ajouter</Label>
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {creditCourseOptions.map((course) => {
+                            const checked = studentForm.creditCoursIds.includes(String(course.id));
+                            return (
+                              <label key={course.id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                                <Checkbox
+                                  checked={checked}
+                                  onCheckedChange={(value) => {
+                                    const isChecked = value === true;
+                                    setStudentForm((current) => ({
+                                      ...current,
+                                      creditCoursIds: isChecked
+                                        ? [...current.creditCoursIds, String(course.id)]
+                                        : current.creditCoursIds.filter((item) => item !== String(course.id)),
+                                    }));
+                                  }}
+                                />
+                                <span>{course.nom}</span>
+                              </label>
+                            );
+                          })}
                         </div>
-                      )}
+                      </div>
                     </div>
                   )}
                   <Input
@@ -1894,51 +1874,33 @@ export default function AdminUsers() {
                       ))}
                     </SelectContent>
                   </Select>
-                  {selectedEditPromotion && (
+                  {selectedEditPromotion && editCreditCourseOptions.length > 0 && (
                     <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
-                      <div>
-                        <p className="text-sm font-medium text-slate-700">Cours inclus automatiquement</p>
-                        <p className="text-xs text-slate-500 mt-1">
-                          Cette promotion rattache automatiquement {selectedEditPromotion.coursIds.length} cours à l'étudiant.
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedEditPromotion.coursIds.map((courseId) => {
-                          const course = cours.find((item) => item.id === courseId);
-                          return (
-                            <span key={courseId} className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700">
-                              {course?.nom ?? `Cours #${courseId}`}
-                            </span>
-                          );
-                        })}
-                      </div>
-                      {editCreditCourseOptions.length > 0 && (
-                        <div className="space-y-2">
-                          <Label className="text-sm font-medium text-slate-700">Cours de crédit d'autres promotions</Label>
-                          <div className="grid gap-2 md:grid-cols-2">
-                            {editCreditCourseOptions.map((course) => {
-                              const checked = editStudentForm.creditCoursIds.includes(String(course.id));
-                              return (
-                                <label key={course.id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
-                                  <Checkbox
-                                    checked={checked}
-                                    onCheckedChange={(value) => {
-                                      const isChecked = value === true;
-                                      setEditStudentForm((current) => ({
-                                        ...current,
-                                        creditCoursIds: isChecked
-                                          ? [...current.creditCoursIds, String(course.id)]
-                                          : current.creditCoursIds.filter((item) => item !== String(course.id)),
-                                      }));
-                                    }}
-                                  />
-                                  <span>{course.nom}</span>
-                                </label>
-                              );
-                            })}
-                          </div>
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium text-slate-700">Cours de crédit d'autres promotions</Label>
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {editCreditCourseOptions.map((course) => {
+                            const checked = editStudentForm.creditCoursIds.includes(String(course.id));
+                            return (
+                              <label key={course.id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                                <Checkbox
+                                  checked={checked}
+                                  onCheckedChange={(value) => {
+                                    const isChecked = value === true;
+                                    setEditStudentForm((current) => ({
+                                      ...current,
+                                      creditCoursIds: isChecked
+                                        ? [...current.creditCoursIds, String(course.id)]
+                                        : current.creditCoursIds.filter((item) => item !== String(course.id)),
+                                    }));
+                                  }}
+                                />
+                                <span>{course.nom}</span>
+                              </label>
+                            );
+                          })}
                         </div>
-                      )}
+                      </div>
                     </div>
                   )}
                   <Input className="md:col-span-2" placeholder="Adresse" value={editStudentForm.adresse} onChange={(e) => setEditStudentForm((current) => ({ ...current, adresse: e.target.value }))} />

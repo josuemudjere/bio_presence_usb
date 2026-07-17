@@ -1,11 +1,13 @@
 package com.biopresence.api.service;
 
 import com.biopresence.api.dto.UtilisateurRequete;
+import com.biopresence.api.Repositories.UtilisateurRepository;
 import com.biopresence.api.dto.UtilisateurReponse;
 import com.biopresence.api.entity.Utilisateur;
 import com.biopresence.api.exception.ExceptionIntrouvable;
-import com.biopresence.api.persistence.UtilisateurRepository;
 import com.biopresence.api.security.ConnexionRequete;
+import com.biopresence.api.security.UserSessionEventService;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.Arrays;
@@ -19,9 +21,17 @@ import java.util.UUID;
 public class UtilisateurService {
 
   private final UtilisateurRepository utilisateurRepository;
+  private final PasswordEncoder passwordEncoder;
+  private final UserSessionEventService userSessionEventService;
 
-  public UtilisateurService(UtilisateurRepository utilisateurRepository) {
+  public UtilisateurService(
+    UtilisateurRepository utilisateurRepository,
+    PasswordEncoder passwordEncoder,
+    UserSessionEventService userSessionEventService
+  ) {
     this.utilisateurRepository = utilisateurRepository;
+    this.passwordEncoder = passwordEncoder;
+    this.userSessionEventService = userSessionEventService;
   }
 
   public List<UtilisateurReponse> listAll() {
@@ -44,13 +54,14 @@ public class UtilisateurService {
     Utilisateur utilisateur = new Utilisateur(
         request.nom().trim(),
         request.email().trim().toLowerCase(),
-        request.password(),
+        passwordEncoder.encode(request.password()),
         resolvePrimaryCoursId(request.coursId(), request.coursIds()),
       normalizeRole(request.role())
     );
     utilisateur.prenom = normalizeNullable(request.prenom());
     utilisateur.coursIds = normalizeCoursIds(request.coursId(), request.coursIds());
     utilisateurRepository.save(utilisateur);
+    userSessionEventService.notifySessionUpdated(utilisateur.id);
     return toResponse(utilisateur);
   }
 
@@ -64,7 +75,7 @@ public class UtilisateurService {
     utilisateur.prenom = normalizeNullable(request.prenom());
     utilisateur.email = newEmail;
     if (request.password() != null && !request.password().isBlank()) {
-      utilisateur.password = request.password();
+      utilisateur.password = passwordEncoder.encode(request.password());
     }
     utilisateur.coursId = resolvePrimaryCoursId(request.coursId(), request.coursIds());
     utilisateur.coursIds = normalizeCoursIds(request.coursId(), request.coursIds());
@@ -72,24 +83,27 @@ public class UtilisateurService {
       utilisateur.role = normalizeRole(request.role());
     }
     utilisateurRepository.save(utilisateur);
+    userSessionEventService.notifySessionUpdated(utilisateur.id);
     return toResponse(utilisateur);
   }
 
   public void delete(UUID id) {
-    findEntity(id);
+    Utilisateur utilisateur = findEntity(id);
     utilisateurRepository.deleteById(Objects.requireNonNull(id, "id"));
+    userSessionEventService.notifySessionUpdated(utilisateur.id);
   }
 
   public UtilisateurReponse toggleActif(UUID id) {
     Utilisateur utilisateur = findEntity(id);
     utilisateur.actif = !utilisateur.actif;
     utilisateurRepository.save(utilisateur);
+    userSessionEventService.notifySessionUpdated(utilisateur.id);
     return toResponse(utilisateur);
   }
 
   public Utilisateur login(ConnexionRequete request) {
     Utilisateur utilisateur = utilisateurRepository.findByEmail(request.email().trim().toLowerCase())
-        .filter(u -> u.password.equals(request.password()))
+        .filter(u -> passwordEncoder.matches(request.password(), u.password) || u.password.equals(request.password()))
         .orElseThrow(() -> new RuntimeException("Identifiants invalides"));
     if (!utilisateur.actif) {
       throw new RuntimeException("Ce compte a été désactivé. Contactez un administrateur.");

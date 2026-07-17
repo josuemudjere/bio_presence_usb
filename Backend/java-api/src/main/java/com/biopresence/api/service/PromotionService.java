@@ -1,13 +1,14 @@
 package com.biopresence.api.service;
 
+import com.biopresence.api.Repositories.EtudiantRepository;
+import com.biopresence.api.Repositories.PromotionRepository;
 import com.biopresence.api.dto.PromotionReponse;
 import com.biopresence.api.dto.PromotionRequete;
 import com.biopresence.api.entity.Cours;
 import com.biopresence.api.entity.Etudiant;
 import com.biopresence.api.entity.Promotion;
 import com.biopresence.api.exception.ExceptionIntrouvable;
-import com.biopresence.api.persistence.EtudiantRepository;
-import com.biopresence.api.persistence.PromotionRepository;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

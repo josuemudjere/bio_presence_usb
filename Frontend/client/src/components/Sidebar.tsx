@@ -120,9 +120,9 @@ export default function Sidebar({ userName = 'Administrateur' }: SidebarProps) {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     // La déconnexion invalide la session puis renvoie explicitement vers l'écran public.
-    logout();
+    await logout();
     setLocation('/connexion');
   };
 
