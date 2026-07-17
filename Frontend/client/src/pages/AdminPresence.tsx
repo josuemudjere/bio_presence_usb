@@ -29,7 +29,7 @@ const RESULT_DISPLAY_DURATION_MS = 2 * 60 * 1000;
 const AUTO_QUEUE_SUCCESS_COOLDOWN_MS = 1200;
 const AUTO_QUEUE_ERROR_COOLDOWN_MS = 3200;
 const MAX_SCAN_FAILURES_BEFORE_MANUAL = 3;
-const ATTENDANCE_GRACE_PERIOD_MINUTES = 20;
+const ATTENDANCE_GRACE_PERIOD_MINUTES = 30;
 const DEPARTURE_REASON_LABELS: Record<DepartureReason, string> = {
   maladie: 'Maladie',
   'urgence-familiale': 'Urgence familiale',

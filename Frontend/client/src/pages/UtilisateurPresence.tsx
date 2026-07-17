@@ -33,7 +33,7 @@ const AUTO_QUEUE_ERROR_COOLDOWN_MS = 3200;
 const MAX_SCAN_FAILURES_BEFORE_MANUAL = 3;
 const TEACHER_SELECTED_COURSE_KEY = 'biopresence_teacher_selected_course';
 const TEACHER_ROSTER_REFRESH_INTERVAL_MS = 15000;
-const ATTENDANCE_GRACE_PERIOD_MINUTES = 20;
+const ATTENDANCE_GRACE_PERIOD_MINUTES = 30;
 const DEPARTURE_REASON_LABELS: Record<DepartureReason, string> = {
   maladie: 'Maladie',
   'urgence-familiale': 'Urgence familiale',

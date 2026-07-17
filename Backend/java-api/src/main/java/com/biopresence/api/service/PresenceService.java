@@ -36,7 +36,7 @@ import java.util.stream.Stream;
 @Transactional
 public class PresenceService {
   private static final Logger logger = LoggerFactory.getLogger(PresenceService.class);
-  private static final int ATTENDANCE_GRACE_PERIOD_MINUTES = 20;
+  private static final int ATTENDANCE_GRACE_PERIOD_MINUTES = 30;
 
   private final PresenceRepository attendanceRecordRepository;
   private final JustificatifRepository justificatifRepository;
