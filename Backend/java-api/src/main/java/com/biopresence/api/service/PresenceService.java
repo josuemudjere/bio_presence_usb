@@ -13,7 +13,6 @@ import com.biopresence.api.entity.Justificatif;
 import com.biopresence.api.entity.ModeSaisie;
 import com.biopresence.api.entity.Presence;
 import com.biopresence.api.entity.StatutPresence;
-import com.biopresence.api.entity.ParametresCours;
 import com.biopresence.api.entity.Etudiant;
 import com.biopresence.api.exception.ExceptionIntrouvable;
 
@@ -42,7 +41,6 @@ public class PresenceService {
   private final PresenceRepository attendanceRecordRepository;
   private final JustificatifRepository justificatifRepository;
   private final EtudiantService studentService;
-  private final ParametresCoursService courseSettingsService;
   private final InscriptionService inscriptionService;
   private final CoursService coursService;
 
@@ -50,24 +48,18 @@ public class PresenceService {
     PresenceRepository attendanceRecordRepository,
     JustificatifRepository justificatifRepository,
     EtudiantService studentService,
-    ParametresCoursService courseSettingsService,
     InscriptionService inscriptionService,
     CoursService coursService
   ) {
     this.attendanceRecordRepository = attendanceRecordRepository;
     this.justificatifRepository = justificatifRepository;
     this.studentService = studentService;
-    this.courseSettingsService = courseSettingsService;
     this.inscriptionService = inscriptionService;
     this.coursService = coursService;
   }
 
   public ScanReponse scan(PresenceScanRequete request) {
     // Le scan biométrique ouvre ou clôture la présence du jour selon l'état déjà enregistré.
-    if (!courseSettingsService.isConfigured()) {
-      throw new IllegalStateException("Configurez d'abord le cours avant le pointage.");
-    }
-
     String fingerprintTemplateId = normalizeFingerprint(request.fingerprintTemplateId());
     logger.info("Teacher attendance scan received: fingerprintTemplateId='{}', coursId={}", fingerprintTemplateId, request.coursId());
 
@@ -246,37 +238,50 @@ public class PresenceService {
 
   public List<LigneEligibiliteReponse> buildEligibilityReport(Long coursId) {
     // L'éligibilité est calculée à partir du nombre de jours distincts pointés pour chaque étudiant.
-    ParametresCours settings = courseSettingsService.getCurrentEntity();
-    if (settings.courseName == null || settings.courseName.isBlank() || settings.courseDays <= 0 || settings.courseHours <= 0) {
-      throw new IllegalStateException("Configurez d'abord le cours avant de generer le rapport d'eligibilite.");
+    Long resolvedCoursId = null;
+    int resolvedCourseDays = 0;
+    int resolvedThreshold = 75;
+
+    if (coursId != null) {
+      try {
+        var course = coursService.findEntity(coursId);
+        resolvedCoursId = coursId;
+        resolvedCourseDays = course.nbJours;
+        resolvedThreshold = course.seuilEligibilite;
+      } catch (RuntimeException ignored) {
+        resolvedCoursId = null;
+      }
     }
 
-    Long effectiveCoursId = coursId != null ? coursId : settings.coursId;
-    Set<UUID> studentIds = effectiveCoursId == null ? Set.of() : getStudentIdsForCourse(effectiveCoursId);
+    final Long finalCoursId = resolvedCoursId;
+    final int finalCourseDays = resolvedCourseDays;
+    final int finalThreshold = resolvedThreshold;
+
+    Set<UUID> studentIds = finalCoursId == null ? Set.of() : getStudentIdsForCourse(finalCoursId);
 
     Map<UUID, Set<LocalDate>> daysByStudent = attendanceRecordRepository.findAll().stream()
-      .filter(record -> effectiveCoursId == null || Objects.equals(record.coursId, effectiveCoursId) || (record.coursId == null && studentIds.contains(record.studentId)))
+      .filter(record -> finalCoursId == null || Objects.equals(record.coursId, finalCoursId) || (record.coursId == null && studentIds.contains(record.studentId)))
       .collect(Collectors.groupingBy(
         record -> record.studentId,
         Collectors.mapping(record -> record.recordDate, Collectors.toSet())
       ));
 
     return studentService.listEntities().stream()
-      .filter(student -> effectiveCoursId == null || inscriptionService.isStudentEnrolledInCourse(student.id, effectiveCoursId))
+      .filter(student -> finalCoursId == null || inscriptionService.isStudentEnrolledInCourse(student.id, finalCoursId))
       .map(student -> {
-      int attendedDays = daysByStudent.getOrDefault(student.id, Set.of()).size();
-      double percentage = Math.min(100.0, (attendedDays * 100.0) / settings.courseDays);
-      boolean eligible = percentage >= settings.eligibilityThreshold;
-      return new LigneEligibiliteReponse(
-        student.id,
-        student.matricule,
-        formatStudentName(student),
-        attendedDays,
-        settings.courseDays,
-        percentage,
-        eligible
-      );
-    }).toList();
+        int attendedDays = daysByStudent.getOrDefault(student.id, Set.of()).size();
+        double percentage = finalCoursId == null ? 0.0 : Math.min(100.0, (attendedDays * 100.0) / finalCourseDays);
+        boolean eligible = finalCoursId != null && percentage >= finalThreshold;
+        return new LigneEligibiliteReponse(
+          student.id,
+          student.matricule,
+          formatStudentName(student),
+          attendedDays,
+          finalCourseDays,
+          percentage,
+          eligible
+        );
+      }).toList();
   }
 
   public PresenceReponse toResponse(Presence record) {
@@ -392,8 +397,7 @@ public class PresenceService {
       }
     }
 
-    var settings = courseSettingsService.getCurrent();
-    return start ? settings.startTime() : settings.endTime();
+    return null;
   }
 
   private Set<UUID> getStudentIdsForCourse(Long coursId) {

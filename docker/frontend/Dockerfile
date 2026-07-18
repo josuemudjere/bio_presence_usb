@@ -4,6 +4,8 @@ WORKDIR /app
 
 RUN corepack enable
 
+ENV VITE_API_BASE_URL=/api
+
 COPY package.json pnpm-lock.yaml components.json tsconfig.json tsconfig.node.json vite.config.ts ./
 COPY patches ./patches
 COPY Frontend ./Frontend

@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/contexts/AuthContext';
-import { fetchAttendanceForCours, fetchAttendanceWeekForCours, fetchCours, fetchStudentsForCours, saveCourseSettingsApi, updateCours } from '@/lib/adminApi';
+import { fetchAttendanceForCours, fetchAttendanceWeekForCours, fetchCours, fetchStudentsForCours, updateCours } from '@/lib/adminApi';
 import type { AttendanceRecord, Cours, Student } from '@/lib/adminData';
 import { serialSensor, type ConnectionState } from '@/lib/serialSensor';
 import { toast } from 'sonner';
@@ -277,15 +277,6 @@ export default function UtilisateurTableauDeBord() {
         course.id === updatedCourse.id ? updatedCourse : course
       )));
 
-      await saveCourseSettingsApi({
-        coursId: updatedCourse.id,
-        courseName: updatedCourse.nom,
-        courseDays: updatedCourse.nbJours,
-        courseHours: updatedCourse.nbHeures,
-        eligibilityThreshold: updatedCourse.seuilEligibilite,
-        startTime: updatedCourse.heureDebut ?? '',
-        endTime: updatedCourse.heureFin ?? '',
-      });
 
       setScheduleForm({
         startTime: updatedCourse.heureDebut?.slice(0, 5) ?? '',

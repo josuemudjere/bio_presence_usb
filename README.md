@@ -375,24 +375,51 @@ Serveur Node.js Express utilisé uniquement en **production** pour servir les fi
 - Java 21 + Maven 3.9+
 - MariaDB (XAMPP) démarré sur le port 3306
 - Node.js + pnpm
+- Docker Desktop si vous souhaitez déployer avec Docker Compose
 
-### 1. Démarrer la base de données
-Démarrer XAMPP et activer le service **MySQL/MariaDB**.
-Base de données : `biopresence` (créée automatiquement par Spring Boot).
+### Déploiement local avec Docker
+Le projet peut être démarré avec Docker Compose pour lancer le frontend, le backend, la base de données et le broker MQTT.
 
-### 2. Démarrer l'API Java
+```bash
+docker compose up -d --build
+```
+
+Puis vérifier les conteneurs :
+
+```bash
+docker compose ps
+```
+
+Accès local :
+- Frontend : `http://localhost:8081`
+- Backend : `http://localhost:8080`
+
+Depuis un autre appareil sur le même réseau, utilisez l'adresse IP de la machine hôte :
+- Frontend : `http://<IP_LOCALE>:8081`
+
+Pour arrêter les services :
+
+```bash
+docker compose down
+```
+
+### Démarrage du serveur backend sans Docker
+Si vous souhaitez lancer uniquement l'API Java localement :
+
 ```bash
 JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home \
   /opt/homebrew/Cellar/maven/3.9.16/bin/mvn -f Backend/java-api/pom.xml spring-boot:run
 ```
-→ API disponible sur `http://localhost:8080`
 
-### 3. Démarrer le frontend
+L'API sera disponible sur `http://localhost:8080`.
+
+### Démarrage du frontend sans Docker
 ```bash
 pnpm install
 pnpm dev
 ```
-→ Frontend disponible sur `http://localhost:3000`
+
+Le frontend sera disponible sur `http://localhost:3000`.
 
 ### Identifiants administrateur par défaut
 | Champ | Valeur |

@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, BriefcaseBusiness, CheckCircle2, Fingerprint, HeartPulse, Loader2, LogOut, ScanSearch, Users } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Fingerprint, Loader2, ScanSearch } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { ATTENDANCE_WINDOW_CLOSED_MESSAGE } from '@/const';
-import { loadCourseSettings, loadStudents, type CourseSettings, type DepartureReason, type Student } from '@/lib/adminData';
-import { createManualAttendance, fetchStudents, saveDepartureJustification, scanAttendance } from '@/lib/adminApi';
+import { loadStudents, type Student } from '@/lib/adminData';
+import { createManualAttendance, fetchStudents, scanAttendance } from '@/lib/adminApi';
 import { getBiometricErrorMessage, notifyRejectedFingerprintScan, scanFingerprintFromSensor } from '@/lib/biometricSensor';
 import { serialSensor, type ConnectionState } from '@/lib/serialSensor';
 import { hasFingerprintId } from '@/lib/utils';
@@ -30,11 +29,6 @@ const AUTO_QUEUE_SUCCESS_COOLDOWN_MS = 1200;
 const AUTO_QUEUE_ERROR_COOLDOWN_MS = 3200;
 const MAX_SCAN_FAILURES_BEFORE_MANUAL = 3;
 const ATTENDANCE_GRACE_PERIOD_MINUTES = 30;
-const DEPARTURE_REASON_LABELS: Record<DepartureReason, string> = {
-  maladie: 'Maladie',
-  'urgence-familiale': 'Urgence familiale',
-  'urgence-travail': 'Urgence au travail',
-};
 
 function parseTimeToMinutes(value?: string | null): number | null {
   if (!value) {
@@ -47,17 +41,6 @@ function parseTimeToMinutes(value?: string | null): number | null {
   }
 
   return (hours * 60) + minutes;
-}
-
-function isWithinAttendanceWindow(startTime?: string | null, endTime?: string | null, now = new Date()): boolean {
-  const startMinutes = parseTimeToMinutes(startTime);
-  const endMinutes = parseTimeToMinutes(endTime);
-  if (startMinutes == null || endMinutes == null) {
-    return false;
-  }
-
-  const currentMinutes = (now.getHours() * 60) + now.getMinutes();
-  return currentMinutes >= startMinutes && currentMinutes <= endMinutes + ATTENDANCE_GRACE_PERIOD_MINUTES;
 }
 
 function getAvatarUrl(studentName: string): string {
@@ -128,7 +111,6 @@ function formatScanTimestamp(date: Date): string {
 
 export default function AdminSensor() {
   const [students, setStudents] = useState<Student[]>(() => loadStudents());
-  const [courseSettings, setCourseSettings] = useState<CourseSettings>(() => loadCourseSettings());
   const [isApiReady, setIsApiReady] = useState(false);
   const [sensorState, setSensorState] = useState<SensorState>('idle');
   const [isListening, setIsListening] = useState(false);
@@ -145,38 +127,6 @@ export default function AdminSensor() {
   const scanInProgressRef = useRef(false);
   const resultTimeoutRef = useRef<number | null>(null);
   const pageActiveRef = useRef(true);
-
-  // Départ anticipé
-  const [earlyDeparturePending, setEarlyDeparturePending] = useState<{
-    attendanceId: string;
-    studentId: string;
-    studentName: string;
-    photoUrl: string;
-    checkOutTime: string;
-  } | null>(null);
-  const [selectedReason, setSelectedReason] = useState<DepartureReason | null>(null);
-
-  const handleConfirmDeparture = async (reason: DepartureReason | null) => {
-    if (!earlyDeparturePending) return;
-    const pendingDeparture = earlyDeparturePending;
-    const reasonLabel = reason ? DEPARTURE_REASON_LABELS[reason] : null;
-
-    if (!isApiReady) {
-      return;
-    }
-
-    try {
-      await saveDepartureJustification(pendingDeparture.attendanceId, {
-        motifJustificatif: reasonLabel,
-        estJustifiee: reason !== null,
-      });
-    } catch {
-      return;
-    }
-
-    setEarlyDeparturePending(null);
-    setSelectedReason(null);
-  };
 
   // Synchroniser l'état de connexion du capteur série
   useEffect(() => serialSensor.onConnectionChange(setConnectionState), []);
@@ -221,9 +171,7 @@ export default function AdminSensor() {
     () => new Intl.DateTimeFormat('fr-FR', { dateStyle: 'full', timeStyle: 'short' }).format(new Date()),
     [sensorState, result]
   );
-  const isCourseScheduleConfigured = Boolean(courseSettings.startTime && courseSettings.endTime);
-  const isPointageWindowOpen = isWithinAttendanceWindow(courseSettings.startTime, courseSettings.endTime, new Date(clockTick));
-  const canScan = connectionState === 'connected' && isCourseScheduleConfigured && isPointageWindowOpen;
+  const canScan = connectionState === 'connected';
 
   useEffect(() => {
     let mounted = true;
@@ -254,10 +202,6 @@ export default function AdminSensor() {
   }, []);
 
   const completeManualAttendance = async (student: Student) => {
-    if (!isPointageWindowOpen) {
-      throw new Error(ATTENDANCE_WINDOW_CLOSED_MESSAGE);
-    }
-
     const attendance = await createManualAttendance({
       studentId: student.id,
       coursId: student.coursId ?? undefined,
@@ -285,16 +229,6 @@ export default function AdminSensor() {
     setManualEntryError('');
     setManualEntryOpen(false);
 
-    if (attendanceType === 'exit' && courseSettings.endTime && checkOutTime && checkOutTime < courseSettings.endTime) {
-      setEarlyDeparturePending({
-        attendanceId: attendance.id,
-        studentId: attendance.studentId,
-        studentName,
-        photoUrl: attendance.photoUrl || resolveStudentPhoto(student, studentName),
-        checkOutTime,
-      });
-      setSelectedReason(null);
-    }
 
     if (attendanceType === 'exit') {
       speakGoodbye(studentName);
@@ -340,19 +274,6 @@ export default function AdminSensor() {
       return;
     }
 
-    if (!isCourseScheduleConfigured) {
-      setSensorState('error');
-      setErrorMessage('Configurez d\'abord l\'heure de début et de fin du cours avant le pointage.');
-      setResult(null);
-      return;
-    }
-
-    if (!isPointageWindowOpen) {
-      setSensorState('error');
-      setErrorMessage(ATTENDANCE_WINDOW_CLOSED_MESSAGE);
-      setResult(null);
-      return;
-    }
 
     const hasRegisteredFingerprints = students.some(
       (student) => student.fingerprintRegistered && student.fingerprintTemplateId
@@ -444,16 +365,6 @@ export default function AdminSensor() {
       setSensorState('success');
 
       // Détecter le départ anticipé
-      if (attendanceType === 'exit' && courseSettings.endTime && checkOutTime && checkOutTime < courseSettings.endTime) {
-        setEarlyDeparturePending({
-          attendanceId: scanResponse.attendance.id,
-          studentId: scanResponse.attendance.studentId,
-          studentName,
-          photoUrl: scanResponse.attendance.photoUrl || resolveStudentPhoto(matchedStudent, studentName),
-          checkOutTime,
-        });
-        setSelectedReason(null);
-      }
 
       if (attendanceType === 'exit') {
         speakGoodbye(studentName);
@@ -611,11 +522,8 @@ export default function AdminSensor() {
                   {sensorState === 'idle' && !isListening && connectionState !== 'connected' && (
                     <p className="text-base text-slate-400">Connectez le capteur pour scanner</p>
                   )}
-                  {sensorState === 'idle' && !isListening && connectionState === 'connected' && !isCourseScheduleConfigured && (
-                    <p className="text-base font-medium text-amber-700">Configurez d'abord l'horaire du cours avant le pointage.</p>
-                  )}
-                  {sensorState === 'idle' && !isListening && connectionState === 'connected' && isCourseScheduleConfigured && !isPointageWindowOpen && (
-                    <p className="text-base font-medium text-amber-700">{ATTENDANCE_WINDOW_CLOSED_MESSAGE}</p>
+                  {sensorState === 'idle' && !isListening && connectionState === 'connected' && (
+                    <p className="text-base text-slate-700">En attente du doigt sur le capteur</p>
                   )}
                   {sensorState === 'idle' && !isListening && canScan && <p className="text-base text-slate-700">En attente du doigt sur le capteur</p>}
                   {sensorState === 'idle' && isListening && <p className="text-base font-medium text-emerald-700 animate-pulse">Posez votre doigt sur le capteur...</p>}
@@ -632,10 +540,6 @@ export default function AdminSensor() {
                   <ScanSearch className="mr-2 h-4 w-4" />
                   {connectionState !== 'connected'
                     ? 'Capteur non connecté'
-                    : !isCourseScheduleConfigured
-                    ? 'Horaire non configuré'
-                    : !isPointageWindowOpen
-                    ? 'Pointage hors créneau'
                     : sensorState === 'loading'
                     ? 'Validation en cours...'
                     : 'Scanner maintenant'}
@@ -748,70 +652,6 @@ export default function AdminSensor() {
       </main>
 
       {/* ── Dialog départ anticipé ── */}
-      <Dialog
-        open={earlyDeparturePending !== null}
-        onOpenChange={(open) => {
-          if (!open) handleConfirmDeparture(null); // fermé sans raison = absent
-        }}
-      >
-        <DialogContent className="max-w-sm overflow-hidden rounded-2xl border border-blue-200 bg-white p-0 shadow-2xl">
-          <div className="bg-gradient-to-br from-blue-700 via-blue-600 to-cyan-500 px-6 pt-6 pb-4 text-center text-white">
-            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white/20">
-              <LogOut className="h-7 w-7" />
-            </div>
-            <DialogTitle className="text-lg font-bold">Départ anticipé détecté</DialogTitle>
-            <p className="mt-1 text-sm text-white/90">
-              {earlyDeparturePending?.studentName} quitte avant
-              {courseSettings.endTime ? ` ${courseSettings.endTime}` : ' la fin du cours'}.
-            </p>
-          </div>
-
-          <div className="px-6 py-5 space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Motif du départ</p>
-
-            {([
-              { value: 'maladie' as DepartureReason, label: 'Maladie', icon: HeartPulse },
-              { value: 'urgence-familiale' as DepartureReason, label: 'Urgence familiale', icon: Users },
-              { value: 'urgence-travail' as DepartureReason, label: 'Urgence au travail', icon: BriefcaseBusiness },
-            ] as const).map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setSelectedReason(opt.value)}
-                className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left text-sm font-medium transition-all ${
-                  selectedReason === opt.value
-                    ? 'border-blue-400 bg-blue-50 text-blue-900 shadow-sm'
-                    : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-300 hover:bg-blue-50/60'
-                }`}
-              >
-                <span className={`flex h-10 w-10 items-center justify-center rounded-full ${
-                  selectedReason === opt.value ? 'bg-blue-100 text-blue-700' : 'bg-white text-slate-500'
-                }`}>
-                  <opt.icon className="h-5 w-5" />
-                </span>
-                {opt.label}
-              </button>
-            ))}
-
-            <div className="mt-4 flex gap-2">
-              <Button
-                onClick={() => handleConfirmDeparture(selectedReason)}
-                disabled={selectedReason === null}
-                className="flex-1 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40"
-              >
-                Confirmer le motif
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => handleConfirmDeparture(null)}
-                className="flex-1 rounded-xl border-blue-200 text-blue-700 hover:bg-blue-50"
-              >
-                Marquer absent
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={manualEntryOpen} onOpenChange={setManualEntryOpen}>
         <DialogContent className="max-w-md rounded-2xl border border-slate-200 bg-white p-0 overflow-hidden shadow-2xl">
