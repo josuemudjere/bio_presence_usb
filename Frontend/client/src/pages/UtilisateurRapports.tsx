@@ -182,7 +182,7 @@ async function generatePresencePdf(options: {
         acc[index] = { cellWidth: 56, halign: 'center' };
       } else if (index === photoColumnIndex) {
         acc[index] = { cellWidth: 44, halign: 'center' };
-      } else if (head[index] === 'Nom complet') {
+      } else if (head[index] === 'Noms Etudiant') {
         acc[index] = { cellWidth: hasDateColumn ? 94 : 110 };
       } else if (head[index] === 'Matricule') {
         acc[index] = { cellWidth: hasDateColumn ? 56 : 62, halign: 'center' };
@@ -298,7 +298,7 @@ async function generateDailyPdf(records: AttendanceRecord[], date: string, cours
       { label: 'Cours', value: course?.nom ?? 'Non défini' },
       { label: 'Departement', value: uniqueDepartments.join(', ') || 'Non défini' },
     ],
-    head: ['N°', 'Photo', 'Nom complet', 'Matricule', 'Promotion', 'Filière', 'Entrée', 'Sortie', 'Statut'],
+    head: ['N°', 'Photo', 'Noms Etudiant', 'Matricule', 'Promotion', 'Filière', 'Entrée', 'Sortie', 'Statut'],
     rows,
     fileName: `presence_${date}.pdf`,
     photoColumnIndex: 1,
@@ -375,7 +375,7 @@ async function generateWeeklyPdf(records: AttendanceRecord[], startDate: string,
       { label: 'Cours', value: course?.nom ?? 'Non défini' },
       { label: 'Departement', value: uniqueDepartments.join(', ') || 'Non défini' },
     ],
-    head: ['N°', 'Date', 'Photo', 'Nom complet', 'Matricule', 'Promotion', 'Filière', 'Entrée', 'Sortie', 'Statut'],
+    head: ['N°', 'Date', 'Photo', 'Noms Etudiant', 'Matricule', 'Promotion', 'Filière', 'Entrée', 'Sortie', 'Statut'],
     rows,
     fileName: `presence_semaine_${startDate}_${endDate}.pdf`,
     photoColumnIndex: 2,

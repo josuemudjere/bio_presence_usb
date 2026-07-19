@@ -1154,7 +1154,7 @@ export default function AdminUsers() {
 
     autoTable(doc, {
       startY: Math.max(188, logoBottomY + 26),
-      head: [['N°', 'Photo', 'Nom complet', 'Matricule', 'Promotion', 'Filière', 'Entrée', 'Sortie', 'Statut']],
+      head: [['N°', 'Photo', 'Noms Etudiant', 'Matricule', 'Promotion', 'Filière', 'Entrée', 'Sortie', 'Statut']],
       body: reportRows.map(({ record, student, statusLabel, index }) => {
         return [
           String(index),
