@@ -5,9 +5,12 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "annees_academiques")
@@ -28,4 +31,11 @@ public class AnneeAcademique {
 
   @Column(nullable = false)
   public boolean estActive;
+
+  @OneToMany(mappedBy = "anneeAcademique")
+  public List<Semestre> semestres = new ArrayList<>();
+
+  public List<Semestre> getSemestres() {
+    return semestres;
+  }
 }

@@ -8,9 +8,26 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import type { Cours, Promotion } from '@/lib/adminData';
-import { createPromotion, deletePromotion, fetchCours, fetchPromotions, resyncStudentInscriptions, updatePromotion } from '@/lib/adminApi';
+import type { Cours, Promotion, Departement, Programme } from '@/lib/adminData';
+import {
+  createDepartement,
+  createProgramme,
+  createPromotion,
+  deleteDepartement,
+  deleteProgramme,
+  deletePromotion,
+  fetchCours,
+  fetchCyclesLmd,
+  fetchDepartements,
+  fetchProgrammes,
+  fetchPromotions,
+  resyncStudentInscriptions,
+  updateDepartement,
+  updateProgramme,
+  updatePromotion,
+} from '@/lib/adminApi';
 
 const emptyForm = {
   niveau: '',
@@ -31,14 +48,27 @@ export default function AdminPromotions() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [resyncing, setResyncing] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [departements, setDepartements] = useState<Departement[]>([]);
+  const [programmes, setProgrammes] = useState<Programme[]>([]);
+  const [cyclesLmd, setCyclesLmd] = useState<Array<'LICENCE' | 'MASTER' | 'DOCTORAT'>>([]);
+  const [newDepartementNom, setNewDepartementNom] = useState('');
+  const [newDepartementCode, setNewDepartementCode] = useState('');
+  const [newProgrammeNom, setNewProgrammeNom] = useState('');
+  const [newProgrammeCode, setNewProgrammeCode] = useState('');
+  const [newProgrammeCycle, setNewProgrammeCycle] = useState<'LICENCE' | 'MASTER' | 'DOCTORAT'>('LICENCE');
+  const [newProgrammeDuree, setNewProgrammeDuree] = useState('6');
+  const [newProgrammeCredits, setNewProgrammeCredits] = useState('180');
 
   useEffect(() => {
     // Je charge les promotions et les cours ensemble pour alimenter la liste et le formulaire.
     setLoading(true);
-    Promise.all([fetchPromotions(), fetchCours()])
-      .then(([promotionRows, coursRows]) => {
+    Promise.all([fetchPromotions(), fetchCours(), fetchDepartements(), fetchProgrammes(), fetchCyclesLmd()])
+      .then(([promotionRows, coursRows, departementRows, programmeRows, cyclesRows]) => {
         setPromotions(promotionRows);
         setCours(coursRows);
+        setDepartements(departementRows);
+        setProgrammes(programmeRows);
+        setCyclesLmd(cyclesRows);
       })
       .catch((error) => {
         toast.error(error instanceof Error ? error.message : 'Impossible de charger les promotions.');
@@ -126,6 +156,90 @@ export default function AdminPromotions() {
       toast.error(error instanceof Error ? error.message : 'Impossible de resynchroniser les inscriptions.');
     } finally {
       setResyncing(false);
+    }
+  };
+
+  const refreshAcademicCatalog = async () => {
+    const [departementRows, programmeRows] = await Promise.all([fetchDepartements(), fetchProgrammes()]);
+    setDepartements(departementRows);
+    setProgrammes(programmeRows);
+  };
+
+  const handleCreateOrUpdateDepartement = async () => {
+    if (!newDepartementNom.trim() || !newDepartementCode.trim()) {
+      toast.error('Le nom et le code du département sont obligatoires.');
+      return;
+    }
+
+    try {
+      const existing = departements.find((item) => item.code.toUpperCase() === newDepartementCode.trim().toUpperCase());
+      if (existing) {
+        await updateDepartement(existing.id, { nom: newDepartementNom.trim(), code: newDepartementCode.trim().toUpperCase() });
+        toast.success('Département mis à jour.');
+      } else {
+        await createDepartement({ nom: newDepartementNom.trim(), code: newDepartementCode.trim().toUpperCase() });
+        toast.success('Département créé.');
+      }
+      setNewDepartementNom('');
+      setNewDepartementCode('');
+      await refreshAcademicCatalog();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible d\'enregistrer le département.');
+    }
+  };
+
+  const handleDeleteDepartement = async (departementId: number) => {
+    try {
+      await deleteDepartement(departementId);
+      await refreshAcademicCatalog();
+      toast.success('Département supprimé.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible de supprimer le département.');
+    }
+  };
+
+  const handleCreateOrUpdateProgramme = async () => {
+    if (!newProgrammeNom.trim() || !newProgrammeCode.trim()) {
+      toast.error('Le nom et le code du programme sont obligatoires.');
+      return;
+    }
+
+    const dureeSemestres = Math.max(1, parseInt(newProgrammeDuree || '1'));
+    const totalCredits = Math.max(1, parseInt(newProgrammeCredits || '1'));
+
+    try {
+      const existing = programmes.find((item) => item.code.toUpperCase() === newProgrammeCode.trim().toUpperCase());
+      const payload = {
+        nom: newProgrammeNom.trim(),
+        code: newProgrammeCode.trim().toUpperCase(),
+        cycle: newProgrammeCycle,
+        dureeSemestres,
+        totalCredits,
+      };
+
+      if (existing) {
+        await updateProgramme(existing.id, payload);
+        toast.success('Programme mis à jour.');
+      } else {
+        await createProgramme(payload);
+        toast.success('Programme créé.');
+      }
+
+      setNewProgrammeNom('');
+      setNewProgrammeCode('');
+      await refreshAcademicCatalog();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible d\'enregistrer le programme.');
+    }
+  };
+
+  const handleDeleteProgramme = async (programmeId: number) => {
+    try {
+      await deleteProgramme(programmeId);
+      await refreshAcademicCatalog();
+      toast.success('Programme supprimé.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible de supprimer le programme.');
     }
   };
 
@@ -231,11 +345,105 @@ export default function AdminPromotions() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="promotion-departement">Département *</Label>
-                <Input id="promotion-departement" placeholder="Saisir le département" value={form.departement} onChange={(e) => setForm((current) => ({ ...current, departement: e.target.value }))} />
+                <Select value={form.departement || 'none'} onValueChange={(value) => setForm((current) => ({ ...current, departement: value === 'none' ? '' : value }))}>
+                  <SelectTrigger id="promotion-departement" className="w-full">
+                    <SelectValue placeholder="Sélectionner un département" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sélectionner un département</SelectItem>
+                    {departements.map((item) => (
+                      <SelectItem key={item.id} value={item.nom}>{item.nom}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="promotion-programme">Filière *</Label>
-                <Input id="promotion-programme" placeholder="Saisir la filière" value={form.programme} onChange={(e) => setForm((current) => ({ ...current, programme: e.target.value }))} />
+                <Select value={form.programme || 'none'} onValueChange={(value) => setForm((current) => ({ ...current, programme: value === 'none' ? '' : value }))}>
+                  <SelectTrigger id="promotion-programme" className="w-full">
+                    <SelectValue placeholder="Sélectionner une filière" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sélectionner une filière</SelectItem>
+                    {programmes.map((item) => (
+                      <SelectItem key={item.id} value={item.nom}>{`${item.nom} (${item.cycle})`}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Référentiel académique (cycles, départements, filières)</p>
+
+              <div className="grid gap-3 md:grid-cols-[1fr_120px_120px]">
+                <Input placeholder="Nom département" value={newDepartementNom} onChange={(e) => setNewDepartementNom(e.target.value)} />
+                <Input placeholder="Code" value={newDepartementCode} onChange={(e) => setNewDepartementCode(e.target.value)} />
+                <Button type="button" onClick={handleCreateOrUpdateDepartement}>Ajouter/Maj</Button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {departements.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-600"
+                    onClick={() => {
+                      setNewDepartementNom(item.nom);
+                      setNewDepartementCode(item.code);
+                    }}
+                    onDoubleClick={() => void handleDeleteDepartement(item.id)}
+                    title="Double-cliquez pour supprimer"
+                  >
+                    {item.nom} ({item.code})
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-5">
+                <Input className="md:col-span-2" placeholder="Nom filière" value={newProgrammeNom} onChange={(e) => setNewProgrammeNom(e.target.value)} />
+                <Input placeholder="Code" value={newProgrammeCode} onChange={(e) => setNewProgrammeCode(e.target.value)} />
+                <Select value={newProgrammeCycle} onValueChange={(value: 'LICENCE' | 'MASTER' | 'DOCTORAT') => {
+                  setNewProgrammeCycle(value);
+                  if (value === 'LICENCE') {
+                    setNewProgrammeDuree('6');
+                    setNewProgrammeCredits('180');
+                  } else if (value === 'MASTER') {
+                    setNewProgrammeDuree('4');
+                    setNewProgrammeCredits('120');
+                  } else {
+                    setNewProgrammeDuree('16');
+                    setNewProgrammeCredits('480');
+                  }
+                }}>
+                  <SelectTrigger className="w-full"><SelectValue placeholder="Cycle" /></SelectTrigger>
+                  <SelectContent>
+                    {cyclesLmd.map((cycle) => <SelectItem key={cycle} value={cycle}>{cycle}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Button type="button" onClick={handleCreateOrUpdateProgramme}>Ajouter/Maj</Button>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <Input placeholder="Durée semestres" type="number" min={1} value={newProgrammeDuree} onChange={(e) => setNewProgrammeDuree(e.target.value)} />
+                <Input placeholder="Total crédits" type="number" min={1} value={newProgrammeCredits} onChange={(e) => setNewProgrammeCredits(e.target.value)} />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {programmes.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-600"
+                    onClick={() => {
+                      setNewProgrammeNom(item.nom);
+                      setNewProgrammeCode(item.code);
+                      setNewProgrammeCycle(item.cycle);
+                      setNewProgrammeDuree(String(item.dureeSemestres ?? 1));
+                      setNewProgrammeCredits(String(item.totalCredits ?? 1));
+                    }}
+                    onDoubleClick={() => void handleDeleteProgramme(item.id)}
+                    title="Double-cliquez pour supprimer"
+                  >
+                    {`${item.nom} (${item.cycle})`}
+                  </button>
+                ))}
               </div>
             </div>
             <div className="space-y-1.5">

@@ -5,16 +5,20 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import Sidebar from '@/components/Sidebar';
 import { toast } from 'sonner';
-import type { Cours } from '@/lib/adminData';
-import { fetchCours, createCours, updateCours, deleteCours } from '@/lib/adminApi';
+import type { Cours, Departement, Programme } from '@/lib/adminData';
+import { fetchCours, createCours, updateCours, deleteCours, fetchDepartements, fetchProgrammes } from '@/lib/adminApi';
 
 const emptyForm = {
   nom: '',
   code: '',
   credits: '0',
   volumeHoraire: '0',
+  departementId: '',
+  programmeId: '',
+  seuilEligibilite: '75',
 };
 
 export default function AdminCours() {
@@ -26,12 +30,18 @@ export default function AdminCours() {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [departements, setDepartements] = useState<Departement[]>([]);
+  const [programmes, setProgrammes] = useState<Programme[]>([]);
 
   useEffect(() => {
     // Au montage, je charge le référentiel des cours une seule fois pour hydrater la vue.
     setLoading(true);
-    fetchCours()
-      .then(setCours)
+    Promise.all([fetchCours(), fetchDepartements(), fetchProgrammes()])
+      .then(([coursRows, departementRows, programmeRows]) => {
+        setCours(coursRows);
+        setDepartements(departementRows);
+        setProgrammes(programmeRows);
+      })
       .catch(() => toast.error('Impossible de charger les cours.'))
       .finally(() => setLoading(false));
   }, []);
@@ -50,7 +60,10 @@ export default function AdminCours() {
       nom: c.nom,
       code: c.code ?? '',
       credits: String(c.credits ?? 0),
-      volumeHoraire: String(c.volumeHoraire ?? c.nbHeures),
+      volumeHoraire: String(c.volumeHoraire ?? 0),
+      departementId: c.departementId != null ? String(c.departementId) : '',
+      programmeId: c.programmeId != null ? String(c.programmeId) : '',
+      seuilEligibilite: String(c.seuilEligibilite ?? 75),
     });
     setDialogOpen(true);
   };
@@ -60,6 +73,7 @@ export default function AdminCours() {
     if (!form.nom.trim()) { toast.error('Le nom du cours est obligatoire.'); return; }
     const credits = parseInt(form.credits || '0');
     const volumeHoraire = parseInt(form.volumeHoraire || '0');
+    const seuilEligibilite = Math.max(1, parseInt(form.seuilEligibilite || '75'));
 
     setSaving(true);
     try {
@@ -69,17 +83,10 @@ export default function AdminCours() {
         code: form.code.trim() || undefined,
         credits: Number.isFinite(credits) ? Math.max(0, credits) : 0,
         volumeHoraire: Number.isFinite(volumeHoraire) ? Math.max(0, volumeHoraire) : 0,
-        intitule: undefined,
-        salle: undefined,
         horaire: undefined,
-        jourSemaine: undefined,
-        nbJours: 1,
-        nbHeures: Math.max(1, Number.isFinite(volumeHoraire) ? volumeHoraire : 0),
-        seuilEligibilite: 75,
-        heureDebut: undefined,
-        heureFin: undefined,
-        departementId: null,
-        programmeId: null,
+        seuilEligibilite,
+        departementId: form.departementId ? Number(form.departementId) : null,
+        programmeId: form.programmeId ? Number(form.programmeId) : null,
       };
       if (editingId !== null) {
         const updated = await updateCours(editingId, payload);
@@ -214,6 +221,7 @@ export default function AdminCours() {
                 <Label htmlFor="code">Code</Label>
                 <Input id="code" placeholder="Saisir le code du Cours" value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} />
               </div>
+              <div />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
@@ -223,6 +231,34 @@ export default function AdminCours() {
               <div className="space-y-1.5">
                 <Label htmlFor="volumeHoraire">Volume horaire</Label>
                 <Input id="volumeHoraire" type="number" min={0} value={form.volumeHoraire} onChange={e => setForm(f => ({ ...f, volumeHoraire: e.target.value }))} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Département</Label>
+                <Select value={form.departementId || 'none'} onValueChange={(value) => setForm(f => ({ ...f, departementId: value === 'none' ? '' : value }))}>
+                  <SelectTrigger className="w-full"><SelectValue placeholder="Sélectionner" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Aucun</SelectItem>
+                    {departements.map((item) => <SelectItem key={item.id} value={String(item.id)}>{item.nom}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Programme (Cycle LMD)</Label>
+                <Select value={form.programmeId || 'none'} onValueChange={(value) => setForm(f => ({ ...f, programmeId: value === 'none' ? '' : value }))}>
+                  <SelectTrigger className="w-full"><SelectValue placeholder="Sélectionner" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Aucun</SelectItem>
+                    {programmes.map((item) => <SelectItem key={item.id} value={String(item.id)}>{`${item.nom} (${item.cycle})`}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="seuilEligibilite">Seuil %</Label>
+                <Input id="seuilEligibilite" type="number" min={1} max={100} value={form.seuilEligibilite} onChange={e => setForm(f => ({ ...f, seuilEligibilite: e.target.value }))} />
               </div>
             </div>
             <div className="flex gap-3 pt-2">

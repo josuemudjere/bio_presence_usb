@@ -8,11 +8,15 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -89,6 +93,18 @@ public class Etudiant {
   @ManyToOne(fetch = FetchType.LAZY)
   @JoinColumn(name = "annee_academique_id")
   public AnneeAcademique anneeAcademique;
+
+  @OneToMany(mappedBy = "etudiant")
+  public List<Inscription> inscriptions = new ArrayList<>();
+
+  @OneToMany(mappedBy = "etudiant")
+  public List<LogPointage> logsPointage = new ArrayList<>();
+
+  @OneToMany(mappedBy = "etudiant")
+  public List<Presence> presences = new ArrayList<>();
+
+  @OneToOne(mappedBy = "etudiant")
+  public TauxAssiduite tauxAssiduite;
 
   public Etudiant() {
   }

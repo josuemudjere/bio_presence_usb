@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ATTENDANCE_WINDOW_CLOSED_MESSAGE } from '@/const';
 import { type Cours, type DepartureReason, type Student } from '@/lib/adminData';
-import { createManualAttendance, fetchCours, fetchStudentsForCours, saveDepartureJustification, scanAttendanceForCours } from '@/lib/adminApi';
+import { createManualAttendance, fetchCours, fetchStudents, fetchStudentsForCours, saveDepartureJustification, scanAttendanceForCours } from '@/lib/adminApi';
 import { getBiometricErrorMessage, notifyRejectedFingerprintScan, scanFingerprintFromSensor } from '@/lib/biometricSensor';
 import { serialSensor, type ConnectionState } from '@/lib/serialSensor';
 import { hasFingerprintId } from '@/lib/utils';
@@ -40,28 +40,35 @@ const DEPARTURE_REASON_LABELS: Record<DepartureReason, string> = {
   'urgence-travail': 'Urgence au travail',
 };
 
-function parseTimeToMinutes(value?: string | null): number | null {
-  if (!value) {
-    return null;
-  }
-
-  const [hours, minutes] = value.split(':').map(Number);
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
-    return null;
-  }
-
-  return (hours * 60) + minutes;
-}
-
 function isWithinAttendanceWindow(startTime?: string | null, endTime?: string | null, now = new Date()): boolean {
-  const startMinutes = parseTimeToMinutes(startTime);
-  const endMinutes = parseTimeToMinutes(endTime);
-  if (startMinutes == null || endMinutes == null) {
+  if (!startTime || !endTime) {
     return false;
   }
 
-  const currentMinutes = (now.getHours() * 60) + now.getMinutes();
-  return currentMinutes >= startMinutes && currentMinutes <= endMinutes + ATTENDANCE_GRACE_PERIOD_MINUTES;
+  const [startHours, startMinutes] = startTime.split(':').map(Number);
+  const [endHours, endMinutes] = endTime.split(':').map(Number);
+  if (!Number.isFinite(startHours) || !Number.isFinite(startMinutes) || !Number.isFinite(endHours) || !Number.isFinite(endMinutes)) {
+    return false;
+  }
+
+  const startDate = new Date(now);
+  startDate.setHours(startHours, startMinutes, 0, 0);
+
+  const endDate = new Date(now);
+  endDate.setHours(endHours, endMinutes, 0, 0);
+
+  const overnightWindow = endDate.getTime() <= startDate.getTime();
+  if (overnightWindow) {
+    endDate.setDate(endDate.getDate() + 1);
+  }
+
+  const effectiveNow = new Date(now);
+  if (overnightWindow && effectiveNow.getTime() < startDate.getTime()) {
+    effectiveNow.setDate(effectiveNow.getDate() + 1);
+  }
+
+  const latestAllowed = new Date(endDate.getTime() + (ATTENDANCE_GRACE_PERIOD_MINUTES * 60 * 1000));
+  return effectiveNow.getTime() >= startDate.getTime() && effectiveNow.getTime() <= latestAllowed.getTime();
 }
 
 function getAvatarUrl(studentName: string): string {
@@ -300,9 +307,20 @@ export default function UtilisateurPresence() {
       return;
     }
 
-    const matchedStudent = filteredStudents.find(
+    let matchedStudent = filteredStudents.find(
       (student) => student.matricule.trim().toUpperCase() === normalizedMatricule
     );
+
+    if (!matchedStudent && isApiReady) {
+      try {
+        const globalStudents = await fetchStudents();
+        matchedStudent = globalStudents.find(
+          (student) => student.matricule.trim().toUpperCase() === normalizedMatricule
+        );
+      } catch {
+        // En cas d'échec API secondaire, on conserve le message métier initial.
+      }
+    }
 
     if (!matchedStudent) {
       setManualEntryError('Aucun étudiant ne correspond à ce matricule dans ce cours.');

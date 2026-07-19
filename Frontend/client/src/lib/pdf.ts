@@ -20,17 +20,19 @@ function loadUsbLogo(): Promise<HTMLImageElement> {
 
 export async function addPdfUsbLogo(
   doc: jsPDF,
-  options: { x: number; y: number; width: number; gap?: number },
+  options: { x: number; y: number; width: number; gap?: number; scale?: number; offsetY?: number },
 ): Promise<{ contentX: number; logoBottomY: number }> {
-  const { x, y, width, gap = 8 } = options;
+  const { x, y, width, gap = 8, scale = 0.9, offsetY = 4 } = options;
   const image = await loadUsbLogo();
   const ratio = image.height / image.width;
-  const height = width * ratio;
+  const scaledWidth = width * scale;
+  const height = scaledWidth * ratio;
+  const adjustedY = y + offsetY;
 
-  doc.addImage(image, 'PNG', x, y, width, height);
+  doc.addImage(image, 'PNG', x, adjustedY, scaledWidth, height);
 
   return {
-    contentX: x + width + gap,
-    logoBottomY: y + height,
+    contentX: x + scaledWidth + gap,
+    logoBottomY: adjustedY + height,
   };
 }

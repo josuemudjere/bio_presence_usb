@@ -89,18 +89,17 @@ public class AdministrateurService {
   }
 
   public void seedDefault() {
-    // Migration : mettre à jour l'ancien admin par défaut si les credentials ont changé
+    // Migration : renommer l'ancien email admin par défaut sans écraser son mot de passe existant.
     adminRepository.findByEmail(LEGACY_ADMIN_EMAIL).ifPresent(old -> {
       old.email = DEFAULT_ADMIN_EMAIL;
-      old.password = passwordEncoder.encode(DEFAULT_ADMIN_PASSWORD);
+      if (old.password == null || old.password.isBlank()) {
+        old.password = passwordEncoder.encode(DEFAULT_ADMIN_PASSWORD);
+      }
       adminRepository.save(old);
     });
-    // Migration : mettre à jour le mot de passe si l'admin existe déjà avec l'ancien mot de passe
+    // Migration : ne convertir en hash que le mot de passe par défaut stocké en clair.
     adminRepository.findByEmail(DEFAULT_ADMIN_EMAIL).ifPresent(existing -> {
-      if (!(passwordEncoder.matches(DEFAULT_ADMIN_PASSWORD, existing.password) || DEFAULT_ADMIN_PASSWORD.equals(existing.password))) {
-        existing.password = passwordEncoder.encode(DEFAULT_ADMIN_PASSWORD);
-        adminRepository.save(existing);
-      } else if (DEFAULT_ADMIN_PASSWORD.equals(existing.password)) {
+      if (DEFAULT_ADMIN_PASSWORD.equals(existing.password)) {
         existing.password = passwordEncoder.encode(DEFAULT_ADMIN_PASSWORD);
         adminRepository.save(existing);
       }

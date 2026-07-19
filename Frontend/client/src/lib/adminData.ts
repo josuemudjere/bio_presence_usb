@@ -19,6 +19,7 @@ export interface Student {
   fingerprintTemplateIds?: string[];
   fingerprintTemplateId?: string;
   fingerprintCount?: number;
+  fingerprintDoigt?: 'POUCE_DROIT' | 'INDEX_DROIT' | 'MAJEUR_DROIT' | 'ANNULAIRE_DROIT' | 'AURICULAIRE_DROIT' | 'POUCE_GAUCHE' | 'INDEX_GAUCHE' | 'MAJEUR_GAUCHE' | 'ANNULAIRE_GAUCHE' | 'AURICULAIRE_GAUCHE';
   lastFingerprintScan?: string;
   academicStatus?: 'ACTIF' | 'INACTIF' | 'SUSPENDU' | 'DIPLOME' | 'EXCLU';
   status: 'ready' | 'pending';
@@ -100,6 +101,10 @@ export interface Promotion {
   departement: string;
   programme: string;
   coursIds: number[];
+}
+
+export interface CycleLmdOption {
+  value: 'LICENCE' | 'MASTER' | 'DOCTORAT';
 }
 
 export interface Utilisateur {

@@ -1,6 +1,7 @@
 package com.biopresence.api.service;
 
 import com.biopresence.api.dto.EtudiantRequete;
+import com.biopresence.api.dto.MetadataEmpreinteRequete;
 import com.biopresence.api.Repositories.EmpreinteDigitaleRepository;
 import com.biopresence.api.Repositories.EtudiantRepository;
 import com.biopresence.api.dto.EtudiantReponse;
@@ -77,7 +78,7 @@ public class EtudiantService {
   }
 
   @Transactional
-  public ReservationEmpreinteReponse reserveFingerprintForEnrollment(String fingerprintTemplateId, String fingerprintTemplateDataBase64) {
+  public ReservationEmpreinteReponse reserveFingerprintForEnrollment(String fingerprintTemplateId, String fingerprintTemplateDataBase64, String doigt) {
     String normalizedFingerprintId = normalizeFingerprintId(fingerprintTemplateId);
     if (normalizedFingerprintId == null) {
       throw new IllegalArgumentException("L'identifiant biométrique est obligatoire.");
@@ -92,8 +93,7 @@ public class EtudiantService {
 
     fingerprint.templateId = normalizedFingerprintId;
   fingerprint.template = resolveFingerprintTemplateBytes(normalizedFingerprintId, fingerprintTemplateDataBase64);
-    fingerprint.qualite = 100;
-    fingerprint.doigt = Doigt.INDEX_DROIT;
+    fingerprint.doigt = resolveDoigt(doigt);
     fingerprint.dateEnrolement = LocalDateTime.now();
     fingerprintRepository.save(fingerprint);
 
@@ -114,6 +114,23 @@ public class EtudiantService {
     fingerprintRepository.findFirstByTemplateIdIgnoreCase(normalizedFingerprintId)
       .filter(fingerprint -> fingerprint.etudiant == null)
       .ifPresent(fingerprintRepository::delete);
+  }
+
+  @Transactional
+  public void updateFingerprintMetadata(String fingerprintTemplateId, MetadataEmpreinteRequete request) {
+    String normalizedFingerprintId = normalizeFingerprintId(fingerprintTemplateId);
+    if (normalizedFingerprintId == null) {
+      throw new IllegalArgumentException("L'identifiant biométrique est obligatoire.");
+    }
+
+    EmpreinteDigitale fingerprint = fingerprintRepository.findFirstByTemplateIdIgnoreCase(normalizedFingerprintId)
+      .orElseThrow(() -> new ExceptionIntrouvable("Empreinte introuvable."));
+
+    if (request.doigt() != null && !request.doigt().isBlank()) {
+      fingerprint.doigt = resolveDoigt(request.doigt());
+    }
+
+    fingerprintRepository.save(Objects.requireNonNull(fingerprint));
   }
 
   @Transactional
@@ -208,32 +225,88 @@ public class EtudiantService {
   @Transactional(readOnly = true)
   public Optional<Etudiant> findByFingerprintTemplateId(String fingerprintTemplateId) {
     // La recherche gère les cas où plusieurs identifiants d'empreinte sont stockés dans la même fiche.
-    String normalized = normalizeFingerprintId(fingerprintTemplateId);
-    if (normalized == null) {
+    LinkedHashSet<String> candidates = buildFingerprintLookupCandidates(fingerprintTemplateId);
+    if (candidates.isEmpty()) {
       return Optional.empty();
     }
 
-    Optional<Etudiant> studentFromFingerprintTable = fingerprintRepository
-      .findFirstByTemplateIdIgnoreCase(normalized)
-      .map(fingerprint -> fingerprint.etudiant);
+    for (String candidate : candidates) {
+      Optional<Etudiant> studentFromFingerprintTable = fingerprintRepository
+        .findFirstByTemplateIdIgnoreCase(candidate)
+        .map(fingerprint -> fingerprint.etudiant);
 
-    if (studentFromFingerprintTable.isPresent()) {
-      return studentFromFingerprintTable;
+      if (studentFromFingerprintTable.isPresent()) {
+        return studentFromFingerprintTable;
+      }
     }
 
+    String normalized = normalizeFingerprintId(fingerprintTemplateId);
+
     return studentRepository.findAll().stream()
-      .filter(student -> resolveFingerprintIds(student).contains(normalized))
+      .filter(student -> {
+        List<String> knownFingerprintIds = resolveFingerprintIds(student);
+        if (normalized != null && knownFingerprintIds.contains(normalized)) {
+          return true;
+        }
+
+        return candidates.stream()
+          .map(this::normalizeFingerprintId)
+          .filter(Objects::nonNull)
+          .anyMatch(knownFingerprintIds::contains);
+      })
       .findFirst();
   }
 
   @Transactional(readOnly = true)
   public Optional<EmpreinteDigitale> findFingerprintByTemplateId(String fingerprintTemplateId) {
-    String normalized = normalizeFingerprintId(fingerprintTemplateId);
-    if (normalized == null) {
+    LinkedHashSet<String> candidates = buildFingerprintLookupCandidates(fingerprintTemplateId);
+    if (candidates.isEmpty()) {
       return Optional.empty();
     }
 
-    return fingerprintRepository.findFirstByTemplateIdIgnoreCase(normalized);
+    for (String candidate : candidates) {
+      Optional<EmpreinteDigitale> fingerprint = fingerprintRepository.findFirstByTemplateIdIgnoreCase(candidate);
+      if (fingerprint.isPresent()) {
+        return fingerprint;
+      }
+    }
+
+    return Optional.empty();
+  }
+
+  private LinkedHashSet<String> buildFingerprintLookupCandidates(String fingerprintTemplateId) {
+    LinkedHashSet<String> candidates = new LinkedHashSet<>();
+    if (fingerprintTemplateId == null) {
+      return candidates;
+    }
+
+    String trimmed = fingerprintTemplateId.trim();
+    if (trimmed.isEmpty()) {
+      return candidates;
+    }
+
+    String upperRaw = trimmed.toUpperCase();
+    candidates.add(upperRaw);
+
+    String normalized = normalizeFingerprintId(trimmed);
+    if (normalized != null) {
+      candidates.add(normalized);
+    }
+
+    String numericCandidate = normalized;
+    if (numericCandidate == null && upperRaw.matches("\\d{1,4}")) {
+      numericCandidate = String.format("%04d", Integer.parseInt(upperRaw));
+      candidates.add(numericCandidate);
+    }
+
+    if (numericCandidate != null && numericCandidate.matches("\\d{4}")) {
+      int number = Integer.parseInt(numericCandidate);
+      candidates.add(String.valueOf(number));
+      candidates.add("FP-ETU-" + number);
+      candidates.add("FP-ETU-" + numericCandidate);
+    }
+
+    return candidates;
   }
 
   public Etudiant findEntity(UUID id) {
@@ -361,6 +434,18 @@ public class EtudiantService {
     return normalized;
   }
 
+  private Doigt resolveDoigt(String rawDoigt) {
+    if (rawDoigt == null || rawDoigt.isBlank()) {
+      return Doigt.INDEX_DROIT;
+    }
+
+    try {
+      return Doigt.valueOf(rawDoigt.trim().toUpperCase());
+    } catch (IllegalArgumentException ignored) {
+      return Doigt.INDEX_DROIT;
+    }
+  }
+
   private List<String> parseFingerprintIds(List<String> fingerprintTemplateIds, String fingerprintTemplateId) {
     if (fingerprintTemplateIds != null && !fingerprintTemplateIds.isEmpty()) {
       return fingerprintTemplateIds.stream()
@@ -458,7 +543,6 @@ public class EtudiantService {
       if (fingerprint.template == null || fingerprint.template.length == 0) {
         fingerprint.template = fingerprintId.getBytes(StandardCharsets.UTF_8);
       }
-      fingerprint.qualite = 100;
       fingerprint.doigt = resolveFinger(index);
       fingerprintRepository.save(fingerprint);
     }
@@ -541,9 +625,17 @@ public class EtudiantService {
       fingerprintIds,
       fingerprintIds.isEmpty() ? null : String.join(",", fingerprintIds),
       student.fingerprintCount,
+      resolvePrimaryFingerprintDoigt(student),
       student.lastFingerprintScan,
       status
     );
+  }
+
+  private String resolvePrimaryFingerprintDoigt(Etudiant student) {
+    return fingerprintRepository.findByEtudiantIdOrderByDateEnrolementAsc(student.id).stream()
+      .findFirst()
+      .map(fingerprint -> fingerprint.doigt == null ? null : fingerprint.doigt.name())
+      .orElse(null);
   }
 
   private Long resolvePromotionIdSafely(Etudiant student) {

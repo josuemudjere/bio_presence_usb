@@ -36,24 +36,42 @@ public class InscriptionService {
   }
 
   public boolean isStudentEnrolledInCourse(UUID studentId, Long coursId) {
-    return inscriptionRepository.existsByEtudiantIdAndCoursIdAndStatut(studentId, coursId, StatutInscription.VALIDEE);
+    return inscriptionRepository.existsByEtudiantIdAndCoursIdAndStatut(studentId, coursId, StatutInscription.VALIDE);
   }
 
   public Set<UUID> getStudentIdsForCourse(Long coursId) {
-    return inscriptionRepository.findDistinctEtudiantIdsByCoursIdAndStatut(coursId, StatutInscription.VALIDEE);
+    return inscriptionRepository.findDistinctEtudiantIdsByCoursIdAndStatut(coursId, StatutInscription.VALIDE);
   }
 
   public long countStudentsForCourse(Long coursId) {
-    return inscriptionRepository.countDistinctEtudiantIdsByCoursIdAndStatut(coursId, StatutInscription.VALIDEE);
+    return inscriptionRepository.countDistinctEtudiantIdsByCoursIdAndStatut(coursId, StatutInscription.VALIDE);
   }
 
   public List<Long> getCourseIdsForStudent(UUID studentId) {
     return inscriptionRepository.findByEtudiantIdOrderByDateInscriptionAsc(studentId).stream()
-      .filter(inscription -> inscription.statut == StatutInscription.VALIDEE)
+      .filter(inscription -> inscription.statut == StatutInscription.VALIDE)
       .filter(inscription -> inscription.cours != null && inscription.cours.id != null)
       .map(inscription -> inscription.cours.id)
       .distinct()
       .toList();
+  }
+
+  public void ensureStudentEnrollment(Etudiant etudiant, Cours cours, String note) {
+    if (etudiant == null || etudiant.id == null || cours == null || cours.id == null) {
+      return;
+    }
+
+    if (inscriptionRepository.existsByEtudiantIdAndCoursIdAndStatut(etudiant.id, cours.id, StatutInscription.VALIDE)) {
+      return;
+    }
+
+    Inscription inscription = new Inscription();
+    inscription.etudiant = etudiant;
+    inscription.cours = cours;
+    inscription.dateInscription = LocalDate.now();
+    inscription.statut = StatutInscription.VALIDE;
+    inscription.notes = note == null || note.isBlank() ? "Affectation automatique" : note;
+    inscriptionRepository.save(inscription);
   }
 
   private void addInscriptions(Etudiant etudiant, List<Cours> courses, Set<Long> seenCourseIds, boolean credit) {
@@ -70,7 +88,7 @@ public class InscriptionService {
       inscription.etudiant = etudiant;
       inscription.cours = cours;
       inscription.dateInscription = LocalDate.now();
-      inscription.statut = StatutInscription.VALIDEE;
+      inscription.statut = StatutInscription.VALIDE;
       inscription.notes = credit ? "Cours de crédit" : "Affectation via promotion";
       inscriptionRepository.save(inscription);
     }

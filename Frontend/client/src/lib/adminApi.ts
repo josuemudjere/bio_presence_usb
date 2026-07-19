@@ -26,6 +26,7 @@ interface ApiStudent {
   fingerprintTemplateIds?: string[];
   fingerprintTemplateId?: string;
   fingerprintCount?: number;
+  fingerprintDoigt?: 'POUCE_DROIT' | 'INDEX_DROIT' | 'MAJEUR_DROIT' | 'ANNULAIRE_DROIT' | 'AURICULAIRE_DROIT' | 'POUCE_GAUCHE' | 'INDEX_GAUCHE' | 'MAJEUR_GAUCHE' | 'ANNULAIRE_GAUCHE' | 'AURICULAIRE_GAUCHE';
   lastFingerprintScan?: string;
   status: 'ACTIF' | 'INACTIF' | 'SUSPENDU' | 'DIPLOME' | 'EXCLU';
 }
@@ -123,6 +124,19 @@ interface ApiProgramme {
   totalCredits?: number;
 }
 
+interface AcademicCatalogDepartementPayload {
+  nom: string;
+  code: string;
+}
+
+interface AcademicCatalogProgrammePayload {
+  nom: string;
+  code: string;
+  cycle: 'LICENCE' | 'MASTER' | 'DOCTORAT';
+  dureeSemestres: number;
+  totalCredits: number;
+}
+
 interface ApiPromotion {
   id: number;
   nom: string;
@@ -211,6 +225,7 @@ function toClientStudent(apiStudent: ApiStudent): Student {
     fingerprintTemplateIds,
     fingerprintTemplateId: normalizedFingerprintTemplateId || undefined,
     fingerprintCount: apiStudent.fingerprintCount ?? fingerprintTemplateIds.length,
+    fingerprintDoigt: apiStudent.fingerprintDoigt,
     lastFingerprintScan: apiStudent.lastFingerprintScan,
     academicStatus,
     status: academicStatus === 'ACTIF' ? 'ready' : 'pending',
@@ -354,17 +369,30 @@ export async function createStudent(input: {
 
 export async function reserveFingerprintEnrollment(
   fingerprintTemplateId: string,
-  fingerprintTemplateDataBase64?: string
+  fingerprintTemplateDataBase64?: string,
+  doigt?: 'POUCE_DROIT' | 'INDEX_DROIT' | 'MAJEUR_DROIT' | 'ANNULAIRE_DROIT' | 'AURICULAIRE_DROIT' | 'POUCE_GAUCHE' | 'INDEX_GAUCHE' | 'MAJEUR_GAUCHE' | 'ANNULAIRE_GAUCHE' | 'AURICULAIRE_GAUCHE'
 ): Promise<{ fingerprintTemplateId: string; reserved: boolean; message: string }> {
   return request<{ fingerprintTemplateId: string; reserved: boolean; message: string }>('/students/fingerprint-reservations', {
     method: 'POST',
-    body: JSON.stringify({ fingerprintTemplateId, fingerprintTemplateDataBase64 }),
+    body: JSON.stringify({ fingerprintTemplateId, fingerprintTemplateDataBase64, doigt }),
   });
 }
 
 export async function releaseFingerprintEnrollment(fingerprintTemplateId: string): Promise<void> {
   await request<void>(`/students/fingerprint-reservations/${encodeURIComponent(fingerprintTemplateId)}`, {
     method: 'DELETE',
+  });
+}
+
+export async function updateFingerprintMetadata(
+  fingerprintTemplateId: string,
+  input: {
+    doigt?: 'POUCE_DROIT' | 'INDEX_DROIT' | 'MAJEUR_DROIT' | 'ANNULAIRE_DROIT' | 'AURICULAIRE_DROIT' | 'POUCE_GAUCHE' | 'INDEX_GAUCHE' | 'MAJEUR_GAUCHE' | 'ANNULAIRE_GAUCHE' | 'AURICULAIRE_GAUCHE';
+  }
+): Promise<void> {
+  await request<void>(`/students/fingerprints/${encodeURIComponent(fingerprintTemplateId)}/metadata`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
   });
 }
 
@@ -532,7 +560,20 @@ export async function fetchCours(): Promise<Cours[]> {
   return cours.map(toClientCours);
 }
 
-export async function createCours(input: Omit<Cours, 'id'>): Promise<Cours> {
+export interface CoursWriteInput {
+  nom: string;
+  code?: string;
+  credits: number;
+  volumeHoraire?: number;
+  horaire?: string;
+  seuilEligibilite?: number;
+  heureDebut?: string;
+  heureFin?: string;
+  departementId?: number | null;
+  programmeId?: number | null;
+}
+
+export async function createCours(input: CoursWriteInput): Promise<Cours> {
   const cours = await request<ApiCours>('/courses', {
     method: 'POST',
     body: JSON.stringify(input),
@@ -540,7 +581,7 @@ export async function createCours(input: Omit<Cours, 'id'>): Promise<Cours> {
   return toClientCours(cours);
 }
 
-export async function updateCours(id: number, input: Omit<Cours, 'id'>): Promise<Cours> {
+export async function updateCours(id: number, input: CoursWriteInput): Promise<Cours> {
   const cours = await request<ApiCours>(`/courses/${id}`, {
     method: 'PUT',
     body: JSON.stringify(input),
@@ -560,6 +601,54 @@ export async function fetchDepartements(): Promise<Departement[]> {
 export async function fetchProgrammes(): Promise<Programme[]> {
   const programmes = await request<ApiProgramme[]>('/academic/programmes');
   return programmes.map(toClientProgramme);
+}
+
+export async function createDepartement(input: AcademicCatalogDepartementPayload): Promise<Departement> {
+  const departement = await request<ApiDepartement>('/academic/departements', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return toClientDepartement(departement);
+}
+
+export async function updateDepartement(id: number, input: AcademicCatalogDepartementPayload): Promise<Departement> {
+  const departement = await request<ApiDepartement>(`/academic/departements/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+  return toClientDepartement(departement);
+}
+
+export async function deleteDepartement(id: number): Promise<void> {
+  await request<void>(`/academic/departements/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function createProgramme(input: AcademicCatalogProgrammePayload): Promise<Programme> {
+  const programme = await request<ApiProgramme>('/academic/programmes', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return toClientProgramme(programme);
+}
+
+export async function updateProgramme(id: number, input: AcademicCatalogProgrammePayload): Promise<Programme> {
+  const programme = await request<ApiProgramme>(`/academic/programmes/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+  return toClientProgramme(programme);
+}
+
+export async function deleteProgramme(id: number): Promise<void> {
+  await request<void>(`/academic/programmes/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function fetchCyclesLmd(): Promise<Array<'LICENCE' | 'MASTER' | 'DOCTORAT'>> {
+  return request<Array<'LICENCE' | 'MASTER' | 'DOCTORAT'>>('/academic/cycles');
 }
 
 export async function fetchPromotions(): Promise<Promotion[]> {

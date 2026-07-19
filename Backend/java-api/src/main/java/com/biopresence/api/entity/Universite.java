@@ -5,7 +5,11 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "universites")
@@ -26,4 +30,11 @@ public class Universite {
 
   @Column
   public String siteWeb;
+
+  @OneToMany(mappedBy = "universite")
+  public List<Faculte> facultes = new ArrayList<>();
+
+  public List<Faculte> getFacultes() {
+    return facultes;
+  }
 }

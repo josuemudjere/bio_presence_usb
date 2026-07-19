@@ -26,6 +26,7 @@ public record EtudiantReponse(
   List<String> fingerprintTemplateIds,
   String fingerprintTemplateId,
   int fingerprintCount,
+  String fingerprintDoigt,
   String lastFingerprintScan,
   String status
 ) {

@@ -86,6 +86,7 @@ com/biopresence/api/entity/Semestre.class
 com/biopresence/api/dto/ProgrammeReponse.class
 com/biopresence/api/Repositories/PresenceRepository.class
 com/biopresence/api/entity/StatutInscription.class
+com/biopresence/api/service/AcademicCatalogService$1.class
 com/biopresence/api/entity/CycleLMD.class
 com/biopresence/api/entity/StatutSeance.class
 com/biopresence/api/controller/AcademicCatalogController.class

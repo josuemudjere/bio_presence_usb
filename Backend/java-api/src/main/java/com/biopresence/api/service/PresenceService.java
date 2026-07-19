@@ -18,12 +18,16 @@ import com.biopresence.api.exception.ExceptionIntrouvable;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -37,25 +41,29 @@ import java.util.stream.Stream;
 public class PresenceService {
   private static final Logger logger = LoggerFactory.getLogger(PresenceService.class);
   private static final int ATTENDANCE_GRACE_PERIOD_MINUTES = 30;
+  private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
   private final PresenceRepository attendanceRecordRepository;
   private final JustificatifRepository justificatifRepository;
   private final EtudiantService studentService;
   private final InscriptionService inscriptionService;
   private final CoursService coursService;
+  private final ZoneId attendanceZoneId;
 
   public PresenceService(
     PresenceRepository attendanceRecordRepository,
     JustificatifRepository justificatifRepository,
     EtudiantService studentService,
     InscriptionService inscriptionService,
-    CoursService coursService
+    CoursService coursService,
+    @Value("${app.attendance.time-zone:Africa/Kinshasa}") String attendanceTimeZone
   ) {
     this.attendanceRecordRepository = attendanceRecordRepository;
     this.justificatifRepository = justificatifRepository;
     this.studentService = studentService;
     this.inscriptionService = inscriptionService;
     this.coursService = coursService;
+    this.attendanceZoneId = resolveZoneId(attendanceTimeZone);
   }
 
   public ScanReponse scan(PresenceScanRequete request) {
@@ -79,8 +87,8 @@ public class PresenceService {
 
     validateCourseAccess(student, request.coursId());
 
-    LocalDate today = LocalDate.now();
-    LocalTime now = LocalTime.now().withSecond(0).withNano(0);
+    LocalDate today = currentDate();
+    LocalTime now = currentTime();
     validateAttendanceWindow(request.coursId(), now);
 
     var openRecord = attendanceRecordRepository
@@ -126,10 +134,10 @@ public class PresenceService {
     validateCourseAccess(student, request.coursId());
 
     LocalDate date = request.date() == null || request.date().isBlank()
-      ? LocalDate.now()
+      ? currentDate()
       : LocalDate.parse(request.date());
     LocalTime checkIn = request.checkIn() == null || request.checkIn().isBlank()
-      ? LocalTime.now().withSecond(0).withNano(0)
+      ? currentTime()
       : LocalTime.parse(request.checkIn());
     LocalTime checkOut = request.checkOut() == null || request.checkOut().isBlank()
       ? null
@@ -346,6 +354,17 @@ public class PresenceService {
       return;
     }
 
+    // Filet de sécurité: si la liaison est manquante, on crée l'inscription au cours actif pour rétablir le flux.
+    inscriptionService.ensureStudentEnrollment(
+      student,
+      coursService.findEntity(coursId),
+      "Affectation automatique via pointage"
+    );
+
+    if (inscriptionService.isStudentEnrolledInCourse(student.id, coursId)) {
+      return;
+    }
+
     throw new IllegalStateException("Cet étudiant n'est pas inscrit à ce cours.");
   }
 
@@ -357,21 +376,37 @@ public class PresenceService {
       return;
     }
 
-    LocalTime latestAllowed = endTime.plusMinutes(ATTENDANCE_GRACE_PERIOD_MINUTES);
-    if (scanTime.isBefore(startTime)) {
+    LocalDate today = currentDate();
+    LocalDateTime startDateTime = LocalDateTime.of(today, startTime);
+    LocalDateTime endDateTime = LocalDateTime.of(today, endTime);
+    boolean overnightWindow = !endTime.isAfter(startTime);
+    if (overnightWindow) {
+      endDateTime = endDateTime.plusDays(1);
+    }
+
+    LocalDateTime latestAllowed = endDateTime.plusMinutes(ATTENDANCE_GRACE_PERIOD_MINUTES);
+    LocalDateTime scanDateTime = LocalDateTime.of(today, scanTime);
+    if (overnightWindow && scanTime.isBefore(startTime)) {
+      // Le pointage après minuit appartient au même créneau quand l'horaire traverse minuit.
+      scanDateTime = scanDateTime.plusDays(1);
+    }
+
+    if (scanDateTime.isBefore(startDateTime)) {
       throw new IllegalStateException(
         String.format(
           "Le pointage n'est autorisé qu'à partir de %s pour ce cours.",
-          startTime
+          startTime.format(TIME_FORMATTER)
         )
       );
     }
 
-    if (scanTime.isAfter(latestAllowed)) {
+    if (scanDateTime.isAfter(latestAllowed)) {
       throw new IllegalStateException(
         String.format(
-          "Le pointage est fermé pour ce cours depuis %s. Une tolérance maximale de %d minutes après la fin est appliquée.",
-          latestAllowed,
+          "Le pointage est fermé pour le créneau programmé %s-%s depuis %s. Une tolérance maximale de %d minutes après la fin est appliquée.",
+          startTime.format(TIME_FORMATTER),
+          endTime.format(TIME_FORMATTER),
+          latestAllowed.toLocalTime().format(TIME_FORMATTER),
           ATTENDANCE_GRACE_PERIOD_MINUTES
         )
       );
@@ -402,6 +437,27 @@ public class PresenceService {
 
   private Set<UUID> getStudentIdsForCourse(Long coursId) {
     return inscriptionService.getStudentIdsForCourse(coursId);
+  }
+
+  private LocalDate currentDate() {
+    return LocalDate.now(attendanceZoneId);
+  }
+
+  private LocalTime currentTime() {
+    return LocalTime.now(attendanceZoneId).withSecond(0).withNano(0);
+  }
+
+  private ZoneId resolveZoneId(String configuredZone) {
+    if (configuredZone == null || configuredZone.isBlank()) {
+      return ZoneId.of("Africa/Kinshasa");
+    }
+
+    try {
+      return ZoneId.of(configuredZone.trim());
+    } catch (DateTimeException ex) {
+      logger.warn("Invalid app.attendance.time-zone '{}', fallback to Africa/Kinshasa", configuredZone);
+      return ZoneId.of("Africa/Kinshasa");
+    }
   }
 
   private String normalizeOptionalText(String value) {

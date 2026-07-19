@@ -2,7 +2,7 @@ package com.biopresence.api.entity;
 
 public enum StatutInscription {
   EN_ATTENTE,
-  VALIDEE,
+  VALIDE,
   REFUSEE,
   ANNULEE,
   TERMINEE

@@ -9,6 +9,7 @@ import com.biopresence.api.exception.ExceptionIntrouvable;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Objects;
 
 @Service
 public class CoursService {
@@ -39,7 +40,7 @@ public class CoursService {
 
   public Cours findEntity(Long id) {
     // La recherche centralisée garantit le même message métier pour tous les appels.
-    return coursRepository.findById(id)
+    return coursRepository.findById(Objects.requireNonNull(id, "id"))
         .orElseThrow(() -> new ExceptionIntrouvable("Cours introuvable."));
   }
 
@@ -78,29 +79,25 @@ public class CoursService {
   private void applyAcademicFields(Cours cours, CoursRequete request) {
     // Tous les champs secondaires sont regroupés ici pour partager la même logique entre create et update.
     cours.code = normalizeNullable(request.code());
-    cours.intitule = normalizeNullable(request.intitule());
+    cours.intitule = null;
     cours.credits = request.credits();
     int nbHeures = resolveNbHeures(request);
     Integer volumeHoraire = request.volumeHoraire();
     cours.volumeHoraire = volumeHoraire != null && volumeHoraire > 0 ? volumeHoraire : nbHeures;
-    cours.salle = normalizeNullable(request.salle());
+    cours.salle = null;
     cours.horaire = normalizeNullable(request.horaire());
-    cours.jourSemaine = normalizeNullable(request.jourSemaine());
+    cours.jourSemaine = null;
     cours.departement = request.departementId() == null ? null : academicCatalogService.findDepartement(request.departementId());
     cours.programme = request.programmeId() == null ? null : academicCatalogService.findProgramme(request.programmeId());
   }
 
   private int resolveNbJours(CoursRequete request) {
     // Un cours sans précision reste planifié sur un seul jour.
-    return request.nbJours() != null && request.nbJours() > 0 ? request.nbJours() : 1;
+    return 1;
   }
 
   private int resolveNbHeures(CoursRequete request) {
-    // Je réutilise le volume horaire si nbHeures n'est pas renseigné explicitement.
-    if (request.nbHeures() != null && request.nbHeures() > 0) {
-      return request.nbHeures();
-    }
-
+    // Le nombre d'heures est aligné sur le volume horaire saisi dans le formulaire simplifié.
     if (request.volumeHoraire() != null && request.volumeHoraire() > 0) {
       return request.volumeHoraire();
     }
@@ -115,7 +112,7 @@ public class CoursService {
 
   public void delete(Long id) {
     findEntity(id);
-    coursRepository.deleteById(id);
+    coursRepository.deleteById(Objects.requireNonNull(id, "id"));
   }
 
   public CoursReponse toResponse(Cours cours) {

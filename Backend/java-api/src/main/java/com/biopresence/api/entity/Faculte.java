@@ -8,7 +8,11 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "facultes")
@@ -22,7 +26,7 @@ public class Faculte {
   public String nom;
 
   @Column(nullable = false)
-  public String sigle;
+  public String code;
 
   @ManyToOne(fetch = FetchType.LAZY)
   @JoinColumn(name = "universite_id")
@@ -31,4 +35,18 @@ public class Faculte {
   @ManyToOne(fetch = FetchType.LAZY)
   @JoinColumn(name = "doyen_id")
   public Enseignant doyen;
+
+  @OneToMany(mappedBy = "faculte")
+  public List<Departement> departements = new ArrayList<>();
+
+  @OneToMany(mappedBy = "faculte")
+  public List<Programme> programmes = new ArrayList<>();
+
+  public List<Departement> getDepartements() {
+    return departements;
+  }
+
+  public List<Programme> getProgrammes() {
+    return programmes;
+  }
 }

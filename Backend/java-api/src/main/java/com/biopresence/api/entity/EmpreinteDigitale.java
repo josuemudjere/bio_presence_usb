@@ -21,6 +21,7 @@ public class EmpreinteDigitale {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
+  @Column(name = "id_empreinte")
   public Long idEmpreinte;
 
   @Column(nullable = false, unique = true)
@@ -32,9 +33,6 @@ public class EmpreinteDigitale {
 
   @Column(nullable = false)
   public LocalDateTime dateEnrolement = LocalDateTime.now();
-
-  @Column(nullable = false)
-  public Integer qualite;
 
   @Enumerated(EnumType.STRING)
   @Column(nullable = false)

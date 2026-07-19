@@ -1,6 +1,7 @@
 package com.biopresence.api.controller;
 
 import com.biopresence.api.dto.EtudiantRequete;
+import com.biopresence.api.dto.MetadataEmpreinteRequete;
 import com.biopresence.api.dto.EtudiantReponse;
 import com.biopresence.api.dto.ReservationEmpreinteReponse;
 import com.biopresence.api.dto.ReservationEmpreinteRequete;
@@ -55,7 +56,20 @@ public class EtudiantController {
 
   @PostMapping("/fingerprint-reservations")
   public ReservationEmpreinteReponse reserveFingerprint(@Valid @RequestBody ReservationEmpreinteRequete request) {
-    return studentService.reserveFingerprintForEnrollment(request.fingerprintTemplateId(), request.fingerprintTemplateDataBase64());
+    return studentService.reserveFingerprintForEnrollment(
+      request.fingerprintTemplateId(),
+      request.fingerprintTemplateDataBase64(),
+      request.doigt()
+    );
+  }
+
+  @PutMapping("/fingerprints/{fingerprintTemplateId}/metadata")
+  public ResponseEntity<Void> updateFingerprintMetadata(
+    @PathVariable String fingerprintTemplateId,
+    @RequestBody MetadataEmpreinteRequete request
+  ) {
+    studentService.updateFingerprintMetadata(fingerprintTemplateId, request);
+    return ResponseEntity.noContent().build();
   }
 
   @DeleteMapping("/fingerprint-reservations/{fingerprintTemplateId}")

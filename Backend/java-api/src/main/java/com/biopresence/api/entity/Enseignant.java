@@ -8,8 +8,12 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "enseignants")
@@ -41,4 +45,13 @@ public class Enseignant {
   @OneToOne(fetch = FetchType.LAZY)
   @JoinColumn(name = "utilisateur_id", unique = true)
   public Utilisateur utilisateur;
+
+  @OneToMany(mappedBy = "enseignant")
+  public List<Cours> cours = new ArrayList<>();
+
+  @OneToMany(mappedBy = "enseignant")
+  public List<Rapport> rapports = new ArrayList<>();
+
+  @OneToMany(mappedBy = "enseignant")
+  public List<LogPointage> logsPointage = new ArrayList<>();
 }

@@ -38,6 +38,7 @@ import {
   resetAttendanceRecordsApi,
   reserveFingerprintEnrollment,
   scanAttendance,
+  updateFingerprintMetadata,
   updateStudent as updateStudentApi,
 } from '@/lib/adminApi';
 import { enrollFingerprintFromSensor, getBiometricErrorMessage, notifyRejectedFingerprintScan, scanFingerprintFromSensor } from '@/lib/biometricSensor';
@@ -100,6 +101,10 @@ function parseTimeToMinutes(value?: string) {
 }
 
 function resolveStudentFiliere(student: Student | undefined, promotions: Promotion[]): string {
+  if (!student) {
+    return 'Non définie';
+  }
+
   if (student?.promotionId != null) {
     const promotion = promotions.find((item) => item.id === student.promotionId);
     if (promotion?.programme && promotion.programme.trim().length > 0) {
@@ -107,7 +112,31 @@ function resolveStudentFiliere(student: Student | undefined, promotions: Promoti
     }
   }
 
+  if (student.level && student.level.trim().length > 0) {
+    const promotionByLevel = promotions.find(
+      (item) => item.niveau?.trim().toLowerCase() === student.level.trim().toLowerCase()
+    );
+    if (promotionByLevel?.programme && promotionByLevel.programme.trim().length > 0) {
+      return promotionByLevel.programme;
+    }
+  }
+
   return 'Non définie';
+}
+
+function resolveStudentPromotion(student: Student | undefined, promotions: Promotion[]): string {
+  if (!student) {
+    return 'Non définie';
+  }
+
+  if (student.promotionId != null) {
+    const promotion = promotions.find((item) => item.id === student.promotionId);
+    if (promotion?.niveau && promotion.niveau.trim().length > 0) {
+      return promotion.niveau;
+    }
+  }
+
+  return student.level?.trim().length ? student.level : 'Non définie';
 }
 
 export default function AdminUsers() {
@@ -216,7 +245,9 @@ export default function AdminUsers() {
   const [scanDialogMode, setScanDialogMode] = useState<ScanDialogMode>('attendance');
   const [scanProgress, setScanProgress] = useState<ScanProgressState>(() => initialScanProgress());
   const [pendingFingerprintId, setPendingFingerprintId] = useState('');
+  const [pendingFingerprintDoigt, setPendingFingerprintDoigt] = useState<'POUCE_DROIT' | 'INDEX_DROIT' | 'MAJEUR_DROIT' | 'ANNULAIRE_DROIT' | 'AURICULAIRE_DROIT' | 'POUCE_GAUCHE' | 'INDEX_GAUCHE' | 'MAJEUR_GAUCHE' | 'ANNULAIRE_GAUCHE' | 'AURICULAIRE_GAUCHE'>('INDEX_DROIT');
   const [courseSettings, setCourseSettings] = useState<CourseSettings>(() => loadCourseSettings());
+  const [reportCoursId, setReportCoursId] = useState<number | null>(null);
   const [isApiReady, setIsApiReady] = useState(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>(() => serialSensor.state);
   const [cours, setCours] = useState<{ id: number; nom: string; departementId?: number | null; programmeId?: number | null }[]>([]);
@@ -307,6 +338,7 @@ export default function AdminUsers() {
 
   const resetStudentRegistrationForm = () => {
     setPendingFingerprintId('');
+    setPendingFingerprintDoigt('INDEX_DROIT');
     setStudentForm(initialStudentFormState);
     setPhotoPreview(null);
   };
@@ -530,7 +562,37 @@ export default function AdminUsers() {
     })
     .sort((a, b) => a.student.name.localeCompare(b.student.name, 'fr'));
 
+  const sortedAttendanceRecords = [...attendanceRecords].sort((left, right) => {
+    const leftStudent = students.find((item) => item.id === left.studentId || item.matricule.trim().toUpperCase() === left.matricule.trim().toUpperCase());
+    const rightStudent = students.find((item) => item.id === right.studentId || item.matricule.trim().toUpperCase() === right.matricule.trim().toUpperCase());
+    const leftName = formatStudentFullName(leftStudent ?? { name: left.studentName, postNom: '', prenom: '' });
+    const rightName = formatStudentFullName(rightStudent ?? { name: right.studentName, postNom: '', prenom: '' });
+    return leftName.localeCompare(rightName, 'fr');
+  });
+
+  useEffect(() => {
+    if (cours.length === 0) {
+      return;
+    }
+
+    if (reportCoursId != null && cours.some((item) => item.id === reportCoursId)) {
+      return;
+    }
+
+    if (courseSettings.coursId != null && cours.some((item) => item.id === courseSettings.coursId)) {
+      setReportCoursId(courseSettings.coursId);
+      return;
+    }
+
+    setReportCoursId(cours[0]?.id ?? null);
+  }, [cours, courseSettings.coursId, reportCoursId]);
+
   const handleCreateStudent = async () => {
+    if (!isApiReady) {
+      toast.error('La création d\'étudiant nécessite une connexion active au backend.');
+      return;
+    }
+
     if (!pendingFingerprintId) {
       toast.error('Scannez d\'abord l\'empreinte avant de créer l\'étudiant.');
       return;
@@ -550,69 +612,41 @@ export default function AdminUsers() {
       return;
     }
 
-    if (isApiReady) {
-      try {
-        const created = await createStudentApi({
-          name: studentForm.name,
-          postNom: studentForm.postNom || undefined,
-          prenom: studentForm.prenom || undefined,
-          matricule: studentForm.matricule,
-          dateNaissance: studentForm.dateNaissance || undefined,
-          lieuNaissance: studentForm.lieuNaissance || undefined,
-          adresse: studentForm.adresse || undefined,
-          telephone: studentForm.telephone || undefined,
-          department: studentForm.department,
-          level: studentForm.level,
-          status: studentForm.status,
-          coursId: studentForm.coursId ? Number(studentForm.coursId) : null,
-          promotionId: Number(studentForm.promotionId),
-          creditCoursIds: studentForm.creditCoursIds.map(Number),
-          photoUrl: studentForm.photoUrl.trim() || undefined,
-          fingerprintTemplateIds: [pendingFingerprintId],
-          fingerprintTemplateId: pendingFingerprintId,
-          fingerprintCount: 1,
-        });
-        setStudents((currentStudents) => [created, ...currentStudents]);
-        resetStudentRegistrationForm();
-        toast.success('Étudiant enregistré Avec Succès avec empreinte biométrique.');
-        return;
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Impossible de créer l\'étudiant.');
-      }
+    try {
+      const created = await createStudentApi({
+        name: studentForm.name,
+        postNom: studentForm.postNom || undefined,
+        prenom: studentForm.prenom || undefined,
+        matricule: studentForm.matricule,
+        dateNaissance: studentForm.dateNaissance || undefined,
+        lieuNaissance: studentForm.lieuNaissance || undefined,
+        adresse: studentForm.adresse || undefined,
+        telephone: studentForm.telephone || undefined,
+        department: studentForm.department,
+        level: studentForm.level,
+        status: studentForm.status,
+        coursId: studentForm.coursId ? Number(studentForm.coursId) : null,
+        promotionId: Number(studentForm.promotionId),
+        creditCoursIds: studentForm.creditCoursIds.map(Number),
+        photoUrl: studentForm.photoUrl.trim() || undefined,
+        fingerprintTemplateIds: [pendingFingerprintId],
+        fingerprintTemplateId: pendingFingerprintId,
+        fingerprintCount: 1,
+      });
+      setStudents((currentStudents) => [created, ...currentStudents]);
+      resetStudentRegistrationForm();
+      toast.success('Étudiant enregistré Avec Succès avec empreinte biométrique.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible de créer l\'étudiant.');
     }
-
-    const newStudent: Student = {
-      id: createUuid(),
-      name: studentForm.name,
-      postNom: studentForm.postNom || undefined,
-      prenom: studentForm.prenom || undefined,
-      matricule: studentForm.matricule.toUpperCase(),
-      dateNaissance: studentForm.dateNaissance || undefined,
-      lieuNaissance: studentForm.lieuNaissance || undefined,
-      adresse: studentForm.adresse || undefined,
-      telephone: studentForm.telephone || undefined,
-      department: studentForm.department,
-      level: studentForm.level,
-      coursId: studentForm.coursId ? Number(studentForm.coursId) : null,
-      promotionId: studentForm.promotionId ? Number(studentForm.promotionId) : null,
-      coursIds: selectedPromotion?.coursIds ?? [],
-      creditCoursIds: studentForm.creditCoursIds.map(Number),
-      photoUrl: studentForm.photoUrl.trim() || undefined,
-      fingerprintRegistered: true,
-      fingerprintTemplateIds: [pendingFingerprintId],
-      fingerprintTemplateId: pendingFingerprintId,
-      fingerprintCount: 1,
-      lastFingerprintScan: formatDisplayDateTime(new Date()),
-      academicStatus: studentForm.status,
-      status: 'ready',
-    };
-
-    setStudents((currentStudents) => [newStudent, ...currentStudents]);
-    resetStudentRegistrationForm();
-    toast.success('Étudiant enregistré en local avec empreinte biométrique.');
   };
 
   const handlePrepareFingerprintForRegistration = async () => {
+    if (!isApiReady) {
+      toast.error('L\'enrôlement nécessite une connexion active au backend.');
+      return;
+    }
+
     if (isSensorBusy) {
       return;
     }
@@ -637,28 +671,19 @@ export default function AdminUsers() {
         await releasePendingFingerprintReservation(pendingFingerprintId);
       }
 
-      if (isApiReady) {
-        const reservation = await reserveFingerprintEnrollment(fingerprintId, enrollment.fingerprintTemplateBase64);
-        setPendingFingerprintId(reservation.fingerprintTemplateId);
-        setScanDialogStep('success');
-        setScanProgress((current) => ({
-          ...current,
-          confirmed: true,
-          message: reservation.message,
-        }));
-        toast.success('Empreinte capturée');
-        await waitForScanFeedback();
-        return;
-      }
-
-      setPendingFingerprintId(fingerprintId);
+      const reservation = await reserveFingerprintEnrollment(
+        fingerprintId,
+        enrollment.fingerprintTemplateBase64,
+        pendingFingerprintDoigt
+      );
+      setPendingFingerprintId(reservation.fingerprintTemplateId);
       setScanDialogStep('success');
       setScanProgress((current) => ({
         ...current,
         confirmed: true,
-        message: 'Empreinte capturée localement. Complétez maintenant les informations étudiant.',
+        message: reservation.message,
       }));
-      toast.success('Empreinte capturée. Vous pouvez maintenant compléter les informations étudiant.');
+      toast.success('Empreinte capturée');
       await waitForScanFeedback();
     } catch (error) {
       toast.error(getBiometricErrorMessage(error));
@@ -866,6 +891,11 @@ export default function AdminUsers() {
   };
 
   const handleEnrollFingerprint = async (studentId: string) => {
+    if (!isApiReady) {
+      toast.error('L\'enrôlement nécessite une connexion active au backend.');
+      return;
+    }
+
     if (isSensorBusy) {
       return;
     }
@@ -907,49 +937,33 @@ export default function AdminUsers() {
       }
       newCount = nextFingerprintIds.length;
 
-      if (isApiReady) {
-        await reserveFingerprintEnrollment(enrolledFingerprintId, enrollment.fingerprintTemplateBase64);
-        const updated = await updateStudentApi(student.id, {
-          name: student.name,
-          postNom: student.postNom,
-          prenom: student.prenom,
-          matricule: student.matricule,
-          dateNaissance: student.dateNaissance,
-          lieuNaissance: student.lieuNaissance,
-          adresse: student.adresse,
-          telephone: student.telephone,
-          department: student.department,
-          level: student.level,
-          coursId: student.coursId,
-          promotionId: student.promotionId,
-          creditCoursIds: student.creditCoursIds,
-          status: student.academicStatus,
-          photoUrl: student.photoUrl,
-          fingerprintTemplateIds: nextFingerprintIds,
-          fingerprintTemplateId: seqFingerprintId,
-          fingerprintCount: newCount,
-        });
-        setStudents((currentStudents) =>
-          currentStudents.map((item) => (item.id === studentId ? updated : item))
-        );
-      } else {
-        const scanMoment = formatDisplayDateTime(new Date());
-        setStudents((currentStudents) =>
-          currentStudents.map((item) =>
-            item.id === studentId
-              ? {
-                  ...item,
-                  fingerprintRegistered: true,
-                  fingerprintTemplateIds: nextFingerprintIds,
-                  fingerprintTemplateId: seqFingerprintId,
-                  fingerprintCount: newCount,
-                  lastFingerprintScan: scanMoment,
-                  status: 'ready',
-                }
-              : item
-          )
-        );
-      }
+      await reserveFingerprintEnrollment(enrolledFingerprintId, enrollment.fingerprintTemplateBase64, pendingFingerprintDoigt);
+      await updateFingerprintMetadata(enrolledFingerprintId, {
+        doigt: pendingFingerprintDoigt,
+      });
+      const updated = await updateStudentApi(student.id, {
+        name: student.name,
+        postNom: student.postNom,
+        prenom: student.prenom,
+        matricule: student.matricule,
+        dateNaissance: student.dateNaissance,
+        lieuNaissance: student.lieuNaissance,
+        adresse: student.adresse,
+        telephone: student.telephone,
+        department: student.department,
+        level: student.level,
+        coursId: student.coursId,
+        promotionId: student.promotionId,
+        creditCoursIds: student.creditCoursIds,
+        status: student.academicStatus,
+        photoUrl: student.photoUrl,
+        fingerprintTemplateIds: nextFingerprintIds,
+        fingerprintTemplateId: seqFingerprintId,
+        fingerprintCount: newCount,
+      });
+      setStudents((currentStudents) =>
+        currentStudents.map((item) => (item.id === studentId ? updated : item))
+      );
       setScanDialogStep('success');
       setScanProgress((current) => ({
         ...current,
@@ -1050,21 +1064,25 @@ export default function AdminUsers() {
       return;
     }
 
-    const exportRows = attendanceToday.map((record) => ({
+    const exportRows = [...attendanceToday].sort((left, right) => {
+      const leftStudent = students.find((item) => item.id === left.studentId || item.matricule.trim().toUpperCase() === left.matricule.trim().toUpperCase());
+      const rightStudent = students.find((item) => item.id === right.studentId || item.matricule.trim().toUpperCase() === right.matricule.trim().toUpperCase());
+      const leftName = formatStudentFullName(leftStudent ?? { name: left.studentName, postNom: '', prenom: '' });
+      const rightName = formatStudentFullName(rightStudent ?? { name: right.studentName, postNom: '', prenom: '' });
+      return leftName.localeCompare(rightName, 'fr');
+    }).map((record) => ({
       record,
-      student: students.find((item) => item.id === record.studentId),
+      student: students.find(
+        (item) => item.id === record.studentId || item.matricule.trim().toUpperCase() === record.matricule.trim().toUpperCase()
+      ),
     }));
 
-    const uniquePromotions = Array.from(new Set(exportRows
-      .map(({ student }) => {
-        if (student?.promotionId != null) {
-          const promotion = promotions.find((item) => item.id === student.promotionId);
-          return promotion?.nom ?? promotion?.niveau ?? student.level;
-        }
-
-        return student?.level ?? null;
-      })
-      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)));
+    const selectedReportCourse = reportCoursId == null ? null : cours.find((item) => item.id === reportCoursId) ?? null;
+    const resolvedCourseName =
+      selectedReportCourse?.nom
+      ?? ((courseSettings.courseName || '').trim().length > 0
+        ? courseSettings.courseName.trim()
+        : cours.find((item) => item.id === courseSettings.coursId)?.nom ?? 'Non défini');
 
     const uniqueDepartments = Array.from(new Set(exportRows
       .map(({ student, record }) => student?.department ?? record.department)
@@ -1077,7 +1095,7 @@ export default function AdminUsers() {
         ? courseEndMinutes - courseStartMinutes
         : null;
     const minimumAttendanceMinutes = courseDurationMinutes != null ? Math.ceil(courseDurationMinutes * 0.75) : null;
-    const reportRows = exportRows.map(({ record, student }) => {
+    const reportRows = exportRows.map(({ record, student }, index) => {
       const checkInMinutes = parseTimeToMinutes(record.checkIn);
       const checkOutMinutes = parseTimeToMinutes(record.checkOut);
       const attendedMinutes =
@@ -1096,11 +1114,12 @@ export default function AdminUsers() {
       return {
         record,
         student,
+        index: index + 1,
         statusLabel: isAbsentForReport ? 'Absent' : 'Présent',
       };
     });
 
-    const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'landscape' });
+    const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait' });
     const pageWidth = doc.internal.pageSize.getWidth();
     const leftMargin = 40;
     const rightMargin = 40;
@@ -1118,8 +1137,7 @@ export default function AdminUsers() {
     const valueColor: [number, number, number] = [31, 41, 55];
     const metadata = [
       { label: 'Date du jour', value: todayLabel },
-      { label: 'Cours', value: courseSettings.courseName || 'Non défini' },
-      { label: 'Promotion', value: uniquePromotions.join(', ') || 'Non définie' },
+      { label: 'Cours', value: resolvedCourseName },
       { label: 'Departement', value: uniqueDepartments.join(', ') || 'Non défini' },
     ];
 
@@ -1136,12 +1154,14 @@ export default function AdminUsers() {
 
     autoTable(doc, {
       startY: Math.max(188, logoBottomY + 26),
-      head: [['Photo', 'Nom complet', 'Matricule', 'Filière', 'Entrée', 'Sortie', 'Statut']],
-      body: reportRows.map(({ record, student, statusLabel }) => {
+      head: [['N°', 'Photo', 'Nom complet', 'Matricule', 'Promotion', 'Filière', 'Entrée', 'Sortie', 'Statut']],
+      body: reportRows.map(({ record, student, statusLabel, index }) => {
         return [
+          String(index),
           student?.photoUrl ? '' : getStudentInitials(student ?? { name: record.studentName, postNom: '', prenom: '' }),
           student ? formatStudentFullName(student) : record.studentName,
           record.matricule,
+          resolveStudentPromotion(student, promotions),
           resolveStudentFiliere(student, promotions),
           record.checkIn,
           record.checkOut ?? 'En attente',
@@ -1151,20 +1171,21 @@ export default function AdminUsers() {
       theme: 'grid',
       margin: { left: leftMargin, right: rightMargin, bottom: 30 },
       styles: {
-        fontSize: 10,
-        cellPadding: { top: 8, right: 6, bottom: 8, left: 6 },
-        minCellHeight: 48,
+        fontSize: 8,
+        cellPadding: { top: 6, right: 4, bottom: 6, left: 4 },
+        minCellHeight: 38,
         valign: 'middle',
         textColor: [30, 41, 59],
         lineColor: [191, 219, 254],
         lineWidth: 0.6,
+        overflow: 'linebreak',
       },
       headStyles: {
         fillColor: [29, 78, 216],
         textColor: [255, 255, 255],
         fontStyle: 'bold',
         halign: 'center',
-        minCellHeight: 30,
+        minCellHeight: 24,
       },
       bodyStyles: {
         fillColor: [255, 255, 255],
@@ -1173,16 +1194,18 @@ export default function AdminUsers() {
         fillColor: [239, 246, 255],
       },
       columnStyles: {
-        0: { cellWidth: 64, halign: 'center' },
-        1: { cellWidth: 180 },
-        2: { cellWidth: 88, halign: 'center' },
-        3: { cellWidth: 130 },
-        4: { cellWidth: 72, halign: 'center' },
-        5: { cellWidth: 72, halign: 'center' },
-        6: { cellWidth: 76, halign: 'center' },
+        0: { cellWidth: 28, halign: 'center' },
+        1: { cellWidth: 44, halign: 'center' },
+        2: { cellWidth: 94 },
+        3: { cellWidth: 56, halign: 'center' },
+        4: { cellWidth: 64 },
+        5: { cellWidth: 76 },
+        6: { cellWidth: 48, halign: 'center' },
+        7: { cellWidth: 48, halign: 'center' },
+        8: { cellWidth: 48, halign: 'center' },
       },
       didParseCell: (data) => {
-        if (data.section === 'body' && data.column.index === 6) {
+        if (data.section === 'body' && data.column.index === 8) {
           if (String(data.cell.raw).toLowerCase() === 'absent') {
             data.cell.styles.textColor = [185, 28, 28];
             data.cell.styles.fillColor = [254, 242, 242];
@@ -1194,7 +1217,7 @@ export default function AdminUsers() {
         }
       },
       didDrawCell: (data) => {
-        if (data.section !== 'body' || data.column.index !== 0) {
+        if (data.section !== 'body' || data.column.index !== 1) {
           return;
         }
 
@@ -1203,14 +1226,14 @@ export default function AdminUsers() {
           return;
         }
 
-        const size = 32;
+        const size = 24;
         const x = data.cell.x + (data.cell.width - size) / 2;
         const y = data.cell.y + (data.cell.height - size) / 2;
         doc.addImage(photoUrl, x, y, size, size);
       },
     });
 
-    const safeCourseName = (courseSettings.courseName || 'cours').replace(/\s+/g, '-').toLowerCase();
+    const safeCourseName = (resolvedCourseName || 'cours').replace(/\s+/g, '-').toLowerCase();
     doc.save(`presence-${safeCourseName}-${today}.pdf`);
     setExportsCount((currentCount) => currentCount + 1);
     toast.success('Rapport PDF journalier généré avec succès.');
@@ -1227,20 +1250,28 @@ export default function AdminUsers() {
       return;
     }
 
+    const selectedReportCourse = reportCoursId == null ? null : cours.find((item) => item.id === reportCoursId) ?? null;
+    const resolvedCourseName =
+      selectedReportCourse?.nom
+      ?? ((courseSettings.courseName || '').trim().length > 0
+        ? courseSettings.courseName.trim()
+        : cours.find((item) => item.id === courseSettings.coursId)?.nom ?? 'Non défini');
+
     const doc = new jsPDF({ unit: 'pt', format: 'a4' });
     const { contentX, logoBottomY } = await addPdfUsbLogo(doc, { x: 40, y: 24, width: 56, gap: 14 });
 
     doc.setFontSize(16);
     doc.text('Rapport global de présence et éligibilité', contentX, 44);
     doc.setFontSize(11);
-    doc.text(`Cours: ${courseSettings.courseName}`, contentX, 66);
+    doc.text(`Cours: ${resolvedCourseName}`, contentX, 66);
     doc.text(`Durée: ${courseSettings.courseDays} jour(s) - ${courseSettings.courseHours} heure(s)`, contentX, 84);
     doc.text(`Seuil d'éligibilité à l'examen: ${eligibilityThreshold}%`, contentX, 102);
 
     autoTable(doc, {
       startY: Math.max(126, logoBottomY + 28),
-      head: [['Matricule', 'Étudiant', 'Jours présents', 'Jours du cours', '% présence', 'Éligibilité']],
+      head: [['N°', 'Matricule', 'Étudiant', 'Jours présents', 'Jours du cours', '% présence', 'Éligibilité']],
       body: studentEligibilityRows.map((row) => [
+        String(studentEligibilityRows.indexOf(row) + 1),
         row.student.matricule,
         row.student.name,
         String(row.attendedDays),
@@ -1249,15 +1280,25 @@ export default function AdminUsers() {
         row.isEligible ? 'Éligible' : 'Non éligible',
       ]),
       styles: {
-        fontSize: 10,
-        cellPadding: 6,
+        fontSize: 8,
+        cellPadding: 4,
+        overflow: 'linebreak',
       },
       headStyles: {
         fillColor: [32, 89, 188],
       },
+      columnStyles: {
+        0: { cellWidth: 28, halign: 'center' },
+        1: { cellWidth: 64, halign: 'center' },
+        2: { cellWidth: 120 },
+        3: { cellWidth: 60, halign: 'center' },
+        4: { cellWidth: 64, halign: 'center' },
+        5: { cellWidth: 54, halign: 'center' },
+        6: { cellWidth: 60, halign: 'center' },
+      },
     });
 
-    const safeCourseName = courseSettings.courseName.replace(/\s+/g, '-').toLowerCase();
+    const safeCourseName = (resolvedCourseName || 'cours').replace(/\s+/g, '-').toLowerCase();
     doc.save(`rapport-global-presence-${safeCourseName}.pdf`);
     toast.success('Rapport global PDF généré avec succès.');
   };
@@ -1314,6 +1355,35 @@ export default function AdminUsers() {
             <p className="text-xs text-slate-400 mt-0.5">Enrôlement biométrique et registre des étudiants</p>
           </div>
           <div className="flex items-center gap-3">
+            <div className="w-64">
+              <Select
+                value={reportCoursId != null ? String(reportCoursId) : 'none'}
+                onValueChange={(value) => {
+                  const nextCoursId = value === 'none' ? null : Number(value);
+                  setReportCoursId(nextCoursId);
+                  if (nextCoursId == null) {
+                    return;
+                  }
+
+                  const selectedCourse = cours.find((item) => item.id === nextCoursId);
+                  setCourseSettings((current) => ({
+                    ...current,
+                    coursId: nextCoursId,
+                    courseName: selectedCourse?.nom ?? current.courseName,
+                  }));
+                }}
+              >
+                <SelectTrigger className="h-9 rounded-lg border-slate-200 bg-white text-xs text-slate-600">
+                  <SelectValue placeholder="Cours du rapport" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Cours du rapport</SelectItem>
+                  {cours.map((item) => (
+                    <SelectItem key={item.id} value={String(item.id)}>{item.nom}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500">
               <CalendarDays className="h-3.5 w-3.5 text-primary" />
               {todayLabel}
@@ -1407,6 +1477,28 @@ export default function AdminUsers() {
                     ) : (
                       <span className="text-xs text-muted-foreground">Aucun ID d'empreinte capturé.</span>
                     )}
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label>Doigt capturé</Label>
+                      <Select value={pendingFingerprintDoigt} onValueChange={(value: 'POUCE_DROIT' | 'INDEX_DROIT' | 'MAJEUR_DROIT' | 'ANNULAIRE_DROIT' | 'AURICULAIRE_DROIT' | 'POUCE_GAUCHE' | 'INDEX_GAUCHE' | 'MAJEUR_GAUCHE' | 'ANNULAIRE_GAUCHE' | 'AURICULAIRE_GAUCHE') => setPendingFingerprintDoigt(value)}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Choisir un doigt" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="POUCE_DROIT">Pouce droit</SelectItem>
+                          <SelectItem value="INDEX_DROIT">Index droit</SelectItem>
+                          <SelectItem value="MAJEUR_DROIT">Majeur droit</SelectItem>
+                          <SelectItem value="ANNULAIRE_DROIT">Annulaire droit</SelectItem>
+                          <SelectItem value="AURICULAIRE_DROIT">Auriculaire droit</SelectItem>
+                          <SelectItem value="POUCE_GAUCHE">Pouce gauche</SelectItem>
+                          <SelectItem value="INDEX_GAUCHE">Index gauche</SelectItem>
+                          <SelectItem value="MAJEUR_GAUCHE">Majeur gauche</SelectItem>
+                          <SelectItem value="ANNULAIRE_GAUCHE">Annulaire gauche</SelectItem>
+                          <SelectItem value="AURICULAIRE_GAUCHE">Auriculaire gauche</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                   <p className="mt-3 text-xs text-muted-foreground">
                   </p>

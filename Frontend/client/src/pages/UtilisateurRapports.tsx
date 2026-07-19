@@ -64,6 +64,10 @@ function parseTimeToMinutes(value?: string | null): number | null {
 }
 
 function resolveStudentFiliere(student: Student | undefined, promotions: Promotion[]): string {
+  if (!student) {
+    return 'Non définie';
+  }
+
   if (student?.promotionId != null) {
     const promotion = promotions.find((item) => item.id === student.promotionId);
     if (promotion?.programme && promotion.programme.trim().length > 0) {
@@ -71,7 +75,31 @@ function resolveStudentFiliere(student: Student | undefined, promotions: Promoti
     }
   }
 
+  if (student.level && student.level.trim().length > 0) {
+    const promotionByLevel = promotions.find(
+      (item) => item.niveau?.trim().toLowerCase() === student.level.trim().toLowerCase()
+    );
+    if (promotionByLevel?.programme && promotionByLevel.programme.trim().length > 0) {
+      return promotionByLevel.programme;
+    }
+  }
+
   return 'Non définie';
+}
+
+function resolveStudentPromotion(student: Student | undefined, promotions: Promotion[]): string {
+  if (!student) {
+    return 'Non définie';
+  }
+
+  if (student.promotionId != null) {
+    const promotion = promotions.find((item) => item.id === student.promotionId);
+    if (promotion?.niveau && promotion.niveau.trim().length > 0) {
+      return promotion.niveau;
+    }
+  }
+
+  return student.level?.trim().length ? student.level : 'Non définie';
 }
 
 type PresencePdfRow = {
@@ -88,7 +116,7 @@ async function generatePresencePdf(options: {
   photoColumnIndex: number;
 }) {
   const { metadata, head, rows, fileName, photoColumnIndex } = options;
-  const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'landscape' });
+  const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const leftMargin = 40;
   const rightMargin = 40;
@@ -116,6 +144,8 @@ async function generatePresencePdf(options: {
     doc.text(item.value, leftMargin + 84, y);
   });
 
+  const hasDateColumn = head.includes('Date');
+
   autoTable(doc, {
     startY: Math.max(188, logoBottomY + 26),
     head: [head],
@@ -123,20 +153,21 @@ async function generatePresencePdf(options: {
     theme: 'grid',
     margin: { left: leftMargin, right: rightMargin, bottom: 30 },
     styles: {
-      fontSize: 10,
-      cellPadding: { top: 8, right: 6, bottom: 8, left: 6 },
-      minCellHeight: 48,
+      fontSize: 8,
+      cellPadding: { top: 6, right: 4, bottom: 6, left: 4 },
+      minCellHeight: 38,
       valign: 'middle',
       textColor: [30, 41, 59],
       lineColor: [191, 219, 254],
       lineWidth: 0.6,
+      overflow: 'linebreak',
     },
     headStyles: {
       fillColor: [29, 78, 216],
       textColor: [255, 255, 255],
       fontStyle: 'bold',
       halign: 'center',
-      minCellHeight: 30,
+      minCellHeight: 24,
     },
     bodyStyles: {
       fillColor: [255, 255, 255],
@@ -145,16 +176,22 @@ async function generatePresencePdf(options: {
       fillColor: [239, 246, 255],
     },
     columnStyles: head.reduce<Record<number, { cellWidth?: number; halign?: 'left' | 'center' | 'right' }>>((acc, _, index) => {
-      if (index === photoColumnIndex) {
-        acc[index] = { cellWidth: 64, halign: 'center' };
+      if (head[index] === 'N°') {
+        acc[index] = { cellWidth: 28, halign: 'center' };
+      } else if (hasDateColumn && head[index] === 'Date') {
+        acc[index] = { cellWidth: 56, halign: 'center' };
+      } else if (index === photoColumnIndex) {
+        acc[index] = { cellWidth: 44, halign: 'center' };
       } else if (head[index] === 'Nom complet') {
-        acc[index] = { cellWidth: 180 };
+        acc[index] = { cellWidth: hasDateColumn ? 94 : 110 };
       } else if (head[index] === 'Matricule') {
-        acc[index] = { cellWidth: 88, halign: 'center' };
+        acc[index] = { cellWidth: hasDateColumn ? 56 : 62, halign: 'center' };
+      } else if (head[index] === 'Promotion') {
+        acc[index] = { cellWidth: hasDateColumn ? 56 : 64 };
       } else if (head[index] === 'Filière') {
-        acc[index] = { cellWidth: 130 };
+        acc[index] = { cellWidth: hasDateColumn ? 64 : 76 };
       } else if (head[index] === 'Entrée' || head[index] === 'Sortie' || head[index] === 'Statut' || head[index] === 'Date') {
-        acc[index] = { cellWidth: 76, halign: 'center' };
+        acc[index] = { cellWidth: hasDateColumn ? 46 : 58, halign: 'center' };
       }
 
       return acc;
@@ -182,7 +219,7 @@ async function generatePresencePdf(options: {
         return;
       }
 
-      const size = 32;
+      const size = 24;
       const x = data.cell.x + (data.cell.width - size) / 2;
       const y = data.cell.y + (data.cell.height - size) / 2;
       doc.addImage(photoUrl, x, y, size, size);
@@ -193,11 +230,6 @@ async function generatePresencePdf(options: {
 }
 
 async function generateDailyPdf(records: AttendanceRecord[], date: string, course: Cours | null, students: Student[], promotions: Promotion[]) {
-  const uniquePromotions = Array.from(new Set(
-    students
-      .map((student) => student.level)
-      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-  ));
   const uniqueDepartments = Array.from(new Set(
     records
       .map((record) => students.find((student) => student.id === record.studentId)?.department ?? record.department)
@@ -211,8 +243,22 @@ async function generateDailyPdf(records: AttendanceRecord[], date: string, cours
       : null;
   const minimumAttendanceMinutes = courseDurationMinutes != null ? Math.ceil(courseDurationMinutes * 0.75) : null;
 
-  const rows = records.map((record) => {
-    const student = students.find((item) => item.id === record.studentId);
+  const rows = [...records]
+    .sort((left, right) => {
+      const leftStudent = students.find(
+        (item) => item.id === left.studentId || item.matricule.trim().toUpperCase() === left.matricule.trim().toUpperCase()
+      );
+      const rightStudent = students.find(
+        (item) => item.id === right.studentId || item.matricule.trim().toUpperCase() === right.matricule.trim().toUpperCase()
+      );
+      const leftName = leftStudent ? formatStudentFullName(leftStudent) : left.studentName;
+      const rightName = rightStudent ? formatStudentFullName(rightStudent) : right.studentName;
+      return leftName.localeCompare(rightName, 'fr');
+    })
+    .map((record, index) => {
+    const student = students.find(
+      (item) => item.id === record.studentId || item.matricule.trim().toUpperCase() === record.matricule.trim().toUpperCase()
+    );
     const fullName = student ? formatStudentFullName(student) : record.studentName;
     const checkInMinutes = parseTimeToMinutes(record.checkIn);
     const checkOutMinutes = parseTimeToMinutes(record.checkOut);
@@ -233,37 +279,33 @@ async function generateDailyPdf(records: AttendanceRecord[], date: string, cours
       photoUrl: student?.photoUrl,
       statusLabel,
       cells: [
-        student?.photoUrl ? '' : getStudentInitials(fullName),
+          String(index + 1),
+          student?.photoUrl ? '' : getStudentInitials(fullName),
         fullName,
         record.matricule,
+          resolveStudentPromotion(student, promotions),
         resolveStudentFiliere(student, promotions),
         record.checkIn || '--',
         record.checkOut || 'En attente',
         statusLabel,
       ],
     } satisfies PresencePdfRow;
-  });
+    });
 
   await generatePresencePdf({
     metadata: [
       { label: 'Date du jour', value: formatDate(date) },
       { label: 'Cours', value: course?.nom ?? 'Non défini' },
-      { label: 'Promotion', value: uniquePromotions.join(', ') || 'Non définie' },
       { label: 'Departement', value: uniqueDepartments.join(', ') || 'Non défini' },
     ],
-    head: ['Photo', 'Nom complet', 'Matricule', 'Filière', 'Entrée', 'Sortie', 'Statut'],
+    head: ['N°', 'Photo', 'Nom complet', 'Matricule', 'Promotion', 'Filière', 'Entrée', 'Sortie', 'Statut'],
     rows,
     fileName: `presence_${date}.pdf`,
-    photoColumnIndex: 0,
+    photoColumnIndex: 1,
   });
 }
 
 async function generateWeeklyPdf(records: AttendanceRecord[], startDate: string, endDate: string, course: Cours | null, students: Student[], promotions: Promotion[]) {
-  const uniquePromotions = Array.from(new Set(
-    students
-      .map((student) => student.level)
-      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-  ));
   const uniqueDepartments = Array.from(new Set(
     records
       .map((record) => students.find((student) => student.id === record.studentId)?.department ?? record.department)
@@ -277,8 +319,22 @@ async function generateWeeklyPdf(records: AttendanceRecord[], startDate: string,
       : null;
   const minimumAttendanceMinutes = courseDurationMinutes != null ? Math.ceil(courseDurationMinutes * 0.75) : null;
 
-  const rows = records.map((record) => {
-    const student = students.find((item) => item.id === record.studentId);
+  const rows = [...records]
+    .sort((left, right) => {
+      const leftStudent = students.find(
+        (item) => item.id === left.studentId || item.matricule.trim().toUpperCase() === left.matricule.trim().toUpperCase()
+      );
+      const rightStudent = students.find(
+        (item) => item.id === right.studentId || item.matricule.trim().toUpperCase() === right.matricule.trim().toUpperCase()
+      );
+      const leftName = leftStudent ? formatStudentFullName(leftStudent) : left.studentName;
+      const rightName = rightStudent ? formatStudentFullName(rightStudent) : right.studentName;
+      return leftName.localeCompare(rightName, 'fr');
+    })
+    .map((record, index) => {
+    const student = students.find(
+      (item) => item.id === record.studentId || item.matricule.trim().toUpperCase() === record.matricule.trim().toUpperCase()
+    );
     const fullName = student ? formatStudentFullName(student) : record.studentName;
     const checkInMinutes = parseTimeToMinutes(record.checkIn);
     const checkOutMinutes = parseTimeToMinutes(record.checkOut);
@@ -299,36 +355,39 @@ async function generateWeeklyPdf(records: AttendanceRecord[], startDate: string,
       photoUrl: student?.photoUrl,
       statusLabel,
       cells: [
+        String(index + 1),
         formatDate(record.date),
         student?.photoUrl ? '' : getStudentInitials(fullName),
         fullName,
         record.matricule,
+        resolveStudentPromotion(student, promotions),
         resolveStudentFiliere(student, promotions),
         record.checkIn || '--',
         record.checkOut || 'En attente',
         statusLabel,
       ],
     } satisfies PresencePdfRow;
-  });
+    });
 
   await generatePresencePdf({
     metadata: [
       { label: 'Date du jour', value: `Du ${formatDate(startDate)} au ${formatDate(endDate)}` },
       { label: 'Cours', value: course?.nom ?? 'Non défini' },
-      { label: 'Promotion', value: uniquePromotions.join(', ') || 'Non définie' },
       { label: 'Departement', value: uniqueDepartments.join(', ') || 'Non défini' },
     ],
-    head: ['Date', 'Photo', 'Nom complet', 'Matricule', 'Filière', 'Entrée', 'Sortie', 'Statut'],
+    head: ['N°', 'Date', 'Photo', 'Nom complet', 'Matricule', 'Promotion', 'Filière', 'Entrée', 'Sortie', 'Statut'],
     rows,
     fileName: `presence_semaine_${startDate}_${endDate}.pdf`,
-    photoColumnIndex: 1,
+    photoColumnIndex: 2,
   });
 }
 
 export default function UtilisateurRapports() {
   // L'enseignant peut ici extraire les présences de son cours par jour ou par semaine.
   const { user } = useAuth();
-  const assignedCourseIds = user?.coursIds ?? (user?.coursId != null ? [user.coursId] : []);
+  const assignedCourseIds = (user?.coursIds ?? (user?.coursId != null ? [user.coursId] : []))
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
   const [assignedCourses, setAssignedCourses] = useState<Cours[]>([]);
   const [selectedCoursId, setSelectedCoursId] = useState<number | null>(assignedCourseIds[0] ?? null);
   const [courseStudents, setCourseStudents] = useState<Student[]>([]);
@@ -341,7 +400,7 @@ export default function UtilisateurRapports() {
         return;
       }
 
-      setAssignedCourses(allCourses.filter((course) => assignedCourseIds.includes(course.id)));
+      setAssignedCourses(allCourses.filter((course) => assignedCourseIds.includes(Number(course.id))));
       setPromotions(allPromotions);
     } catch {
       if (mounted && !mounted.current) {
@@ -514,7 +573,7 @@ export default function UtilisateurRapports() {
     }
   };
 
-  const selectedCourse = assignedCourses.find((course) => course.id === selectedCoursId) ?? null;
+  const selectedCourse = assignedCourses.find((course) => Number(course.id) === Number(selectedCoursId)) ?? null;
   const coursName = selectedCourse?.nom ?? `Cours #${selectedCoursId ?? '?'}`;
 
   return (
