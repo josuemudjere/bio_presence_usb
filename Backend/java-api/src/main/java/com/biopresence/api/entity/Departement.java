@@ -42,8 +42,15 @@ public class Departement {
   @OneToMany(mappedBy = "departement")
   public List<Cours> cours = new ArrayList<>();
 
+  @OneToMany(mappedBy = "departement")
+  public List<Filiere> filieres = new ArrayList<>();
+
   public List<Enseignant> getEnseignants() {
     return enseignants;
+  }
+
+  public List<Filiere> getFilieres() {
+    return filieres;
   }
 
   public List<Cours> getCours() {

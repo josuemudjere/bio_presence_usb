@@ -154,8 +154,8 @@ async function generatePresencePdf(options: {
     margin: { left: leftMargin, right: rightMargin, bottom: 30 },
     styles: {
       fontSize: 8,
-      cellPadding: { top: 6, right: 4, bottom: 6, left: 4 },
-      minCellHeight: 38,
+      cellPadding: { top: 4, right: 4, bottom: 4, left: 4 },
+      minCellHeight: 30,
       valign: 'middle',
       textColor: [30, 41, 59],
       lineColor: [191, 219, 254],
@@ -175,23 +175,24 @@ async function generatePresencePdf(options: {
     alternateRowStyles: {
       fillColor: [239, 246, 255],
     },
+    tableWidth: 'wrap',
     columnStyles: head.reduce<Record<number, { cellWidth?: number; halign?: 'left' | 'center' | 'right' }>>((acc, _, index) => {
       if (head[index] === 'N°') {
-        acc[index] = { cellWidth: 28, halign: 'center' };
+        acc[index] = { cellWidth: 22, halign: 'center' };
       } else if (hasDateColumn && head[index] === 'Date') {
-        acc[index] = { cellWidth: 56, halign: 'center' };
+        acc[index] = { cellWidth: 48, halign: 'center' };
       } else if (index === photoColumnIndex) {
-        acc[index] = { cellWidth: 44, halign: 'center' };
+        acc[index] = { cellWidth: 36, halign: 'center' };
       } else if (head[index] === 'Noms Etudiant') {
-        acc[index] = { cellWidth: hasDateColumn ? 94 : 110 };
+        acc[index] = { cellWidth: 120 };
       } else if (head[index] === 'Matricule') {
-        acc[index] = { cellWidth: hasDateColumn ? 56 : 62, halign: 'center' };
+        acc[index] = { cellWidth: 52, halign: 'center' };
       } else if (head[index] === 'Promotion') {
-        acc[index] = { cellWidth: hasDateColumn ? 56 : 64 };
+        acc[index] = { cellWidth: 48 };
       } else if (head[index] === 'Filière') {
-        acc[index] = { cellWidth: hasDateColumn ? 64 : 76 };
-      } else if (head[index] === 'Entrée' || head[index] === 'Sortie' || head[index] === 'Statut' || head[index] === 'Date') {
-        acc[index] = { cellWidth: hasDateColumn ? 46 : 58, halign: 'center' };
+        acc[index] = { cellWidth: 44 };
+      } else if (head[index] === 'Entrée' || head[index] === 'Sortie' || head[index] === 'Statut') {
+        acc[index] = { cellWidth: 42, halign: 'center' };
       }
 
       return acc;
@@ -267,12 +268,11 @@ async function generateDailyPdf(records: AttendanceRecord[], date: string, cours
         ? checkOutMinutes - checkInMinutes
         : null;
     const leftEarly = checkOutMinutes != null && courseEndMinutes != null && checkOutMinutes < courseEndMinutes;
+    const leftEarlyMinutes = leftEarly ? courseEndMinutes - checkOutMinutes! : null;
     const isAbsentForReport =
-      leftEarly &&
-      record.estJustifiee === false &&
-      minimumAttendanceMinutes != null &&
-      attendedMinutes != null &&
-      attendedMinutes < minimumAttendanceMinutes;
+      leftEarlyMinutes != null &&
+      leftEarlyMinutes > 10 &&
+      record.estJustifiee === false;
     const statusLabel = isAbsentForReport ? 'Absent' : 'Présent';
 
     return {
@@ -343,12 +343,11 @@ async function generateWeeklyPdf(records: AttendanceRecord[], startDate: string,
         ? checkOutMinutes - checkInMinutes
         : null;
     const leftEarly = checkOutMinutes != null && courseEndMinutes != null && checkOutMinutes < courseEndMinutes;
+    const leftEarlyMinutes = leftEarly ? courseEndMinutes - checkOutMinutes! : null;
     const isAbsentForReport =
-      leftEarly &&
-      record.estJustifiee === false &&
-      minimumAttendanceMinutes != null &&
-      attendedMinutes != null &&
-      attendedMinutes < minimumAttendanceMinutes;
+      leftEarlyMinutes != null &&
+      leftEarlyMinutes > 10 &&
+      record.estJustifiee === false;
     const statusLabel = isAbsentForReport ? 'Absent' : 'Présent';
 
     return {

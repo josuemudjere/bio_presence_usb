@@ -11,6 +11,7 @@ public record PromotionRequete(
   String description,
   @NotBlank(message = "Le département est obligatoire") String departement,
   @NotBlank(message = "La filière est obligatoire") String programme,
+  Long filiereId,
   List<Long> coursIds
 ) {
 }

@@ -40,7 +40,7 @@ import java.util.stream.Stream;
 @Transactional
 public class PresenceService {
   private static final Logger logger = LoggerFactory.getLogger(PresenceService.class);
-  private static final int ATTENDANCE_GRACE_PERIOD_MINUTES = 30;
+  private static final int ATTENDANCE_GRACE_PERIOD_MINUTES = 00;
   private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
   private final PresenceRepository attendanceRecordRepository;
@@ -56,7 +56,7 @@ public class PresenceService {
     EtudiantService studentService,
     InscriptionService inscriptionService,
     CoursService coursService,
-    @Value("${app.attendance.time-zone:Africa/Kinshasa}") String attendanceTimeZone
+    @Value("${app.attendance.time-zone:Africa/Lubumbashi}") String attendanceTimeZone
   ) {
     this.attendanceRecordRepository = attendanceRecordRepository;
     this.justificatifRepository = justificatifRepository;
@@ -303,6 +303,19 @@ public class PresenceService {
     } catch (ExceptionIntrouvable ignored) {
     }
 
+    String filiere = null;
+    if (record.etudiant != null) {
+      if (record.etudiant.promotion != null && record.etudiant.promotion.filiere != null && record.etudiant.promotion.filiere.nom != null) {
+        filiere = record.etudiant.promotion.filiere.nom;
+      } else if (record.etudiant.promotion != null && record.etudiant.promotion.programme != null) {
+        filiere = record.etudiant.promotion.programme;
+      } else if (record.etudiant.programme != null && record.etudiant.programme.nom != null) {
+        filiere = record.etudiant.programme.nom;
+      } else if (record.etudiant.level != null) {
+        filiere = record.etudiant.level;
+      }
+    }
+
     return new PresenceReponse(
       record.id,
       record.studentId,
@@ -312,6 +325,7 @@ public class PresenceService {
       resolvedPhotoUrl,
       record.matricule,
       record.department,
+      filiere,
       record.dateHeure,
       record.heureArrivee,
       record.recordDate,
@@ -334,6 +348,15 @@ public class PresenceService {
     String normalized = fingerprintTemplateId.trim().toUpperCase();
     if (normalized.isEmpty()) {
       throw new IllegalArgumentException("L'identifiant biometrique est obligatoire.");
+    }
+
+    if (normalized.matches("\\d{1,4}")) {
+      return String.format("%04d", Integer.parseInt(normalized));
+    }
+
+    if (normalized.matches("FP-ETU-\\d{1,4}")) {
+      String suffix = normalized.substring(normalized.lastIndexOf('-') + 1);
+      return String.format("%04d", Integer.parseInt(suffix));
     }
 
     return normalized;
@@ -449,14 +472,14 @@ public class PresenceService {
 
   private ZoneId resolveZoneId(String configuredZone) {
     if (configuredZone == null || configuredZone.isBlank()) {
-      return ZoneId.of("Africa/Kinshasa");
+      return ZoneId.systemDefault();
     }
 
     try {
       return ZoneId.of(configuredZone.trim());
     } catch (DateTimeException ex) {
-      logger.warn("Invalid app.attendance.time-zone '{}', fallback to Africa/Kinshasa", configuredZone);
-      return ZoneId.of("Africa/Kinshasa");
+      logger.warn("Invalid app.attendance.time-zone '{}', fallback to system default", configuredZone);
+      return ZoneId.systemDefault();
     }
   }
 

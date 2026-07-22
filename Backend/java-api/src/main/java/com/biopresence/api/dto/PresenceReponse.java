@@ -15,6 +15,7 @@ public record PresenceReponse(
   String photoUrl,
   String matricule,
   String department,
+  String filiere,
   LocalDateTime dateHeure,
   LocalTime heureArrivee,
   LocalDate recordDate,

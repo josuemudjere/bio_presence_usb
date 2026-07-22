@@ -49,6 +49,19 @@ services:
     volumes:
       - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
 
+  nginx:
+    image: nginx:1.25
+    container_name: biopresence-nginx
+    restart: unless-stopped
+    ports:
+      - '80:80'
+    depends_on:
+      - frontend
+      - backend
+      - mqtt
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
 volumes:
   db-data:
     name: biopresence-db-data

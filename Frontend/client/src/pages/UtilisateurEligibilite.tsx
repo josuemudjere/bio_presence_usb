@@ -19,27 +19,77 @@ interface EligibilityRow {
 }
 
 async function generateEligibilityPdf(rows: EligibilityRow[], coursName: string) {
-  // L'export PDF permet de partager l'état d'éligibilité sans dépendre de l'interface web.
-  const doc = new jsPDF();
-  const { contentX, logoBottomY } = await addPdfUsbLogo(doc, { x: 14, y: 10, width: 20, gap: 6 });
-  doc.setFontSize(16);
-  doc.text(`Éligibilité à l'examen — ${coursName}`, contentX, 18);
-  doc.setFontSize(11);
-  doc.text(`Généré le : ${new Intl.DateTimeFormat('fr-FR').format(new Date())}`, contentX, 28);
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const leftMargin = 40;
+  const rightMargin = 40;
+  const logoWidth = 56;
+  const { contentX, logoBottomY } = await addPdfUsbLogo(doc, { x: leftMargin, y: 24, width: logoWidth, gap: 14 });
+
+  doc.setTextColor(17, 24, 39);
+  doc.setFontSize(20);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`RAPPORT D'ÉLIGIBILITÉ À L'EXAMEN`, pageWidth / 2, 44, { align: 'center' });
+
+  const headerTop = 94;
+  const labelColor: [number, number, number] = [33, 97, 191];
+  const valueColor: [number, number, number] = [31, 41, 55];
+  const metadata = [
+    { label: 'Cours', value: coursName },
+    { label: 'Date de génération', value: new Intl.DateTimeFormat('fr-FR').format(new Date()) },
+  ];
+
+  metadata.forEach((item, index) => {
+    const y = headerTop + index * 20;
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...labelColor);
+    doc.text(`${item.label}:`, leftMargin, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...valueColor);
+    doc.text(item.value, leftMargin + 84, y);
+  });
 
   autoTable(doc, {
-    startY: Math.max(36, logoBottomY + 8),
-    head: [['Nom', 'Matricule', 'Jours présents', 'Total jours', 'Pourcentage', 'Éligible']],
-    body: rows.map(r => [
+    startY: Math.max(126, logoBottomY + 28),
+    head: [['N°', 'Nom', 'Matricule', 'Jours présents', 'Total jours', 'Pourcentage', 'Éligible']],
+    body: rows.map((r, index) => [
+      String(index + 1),
       r.studentName,
       r.matricule,
-      r.attendedDays,
-      r.courseDays,
+      String(r.attendedDays),
+      String(r.courseDays),
       `${r.attendancePercentage.toFixed(1)}%`,
       r.eligible ? 'Oui' : 'Non',
     ]),
-    headStyles: { fillColor: [15, 23, 42] },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
+    theme: 'grid',
+    margin: { left: leftMargin, right: rightMargin, bottom: 30 },
+    styles: {
+      fontSize: 8,
+      cellPadding: 4,
+      overflow: 'linebreak',
+      textColor: [30, 41, 59],
+      lineColor: [191, 219, 254],
+      lineWidth: 0.6,
+    },
+    headStyles: {
+      fillColor: [32, 89, 188],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      halign: 'center',
+    },
+    alternateRowStyles: {
+      fillColor: [239, 246, 255],
+    },
+    columnStyles: {
+      0: { cellWidth: 28, halign: 'center' },
+      1: { cellWidth: 160 },
+      2: { cellWidth: 80, halign: 'center' },
+      3: { cellWidth: 64, halign: 'center' },
+      4: { cellWidth: 64, halign: 'center' },
+      5: { cellWidth: 58, halign: 'center' },
+      6: { cellWidth: 54, halign: 'center' },
+    },
   });
 
   doc.save(`eligibilite_${coursName.toLowerCase().replace(/\s+/g, '_')}.pdf`);

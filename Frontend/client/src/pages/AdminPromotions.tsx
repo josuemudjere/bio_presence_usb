@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import type { Cours, Promotion, Departement, Programme } from '@/lib/adminData';
+import type { Cours, Promotion, Departement, Filiere, Programme } from '@/lib/adminData';
 import {
   createDepartement,
   createProgramme,
@@ -21,6 +21,7 @@ import {
   fetchCours,
   fetchCyclesLmd,
   fetchDepartements,
+  fetchFilieres,
   fetchProgrammes,
   fetchPromotions,
   resyncStudentInscriptions,
@@ -34,6 +35,7 @@ const emptyForm = {
   description: '',
   departement: '',
   programme: '',
+  filiereId: null as number | null,
   coursIds: [] as string[],
 };
 
@@ -49,6 +51,7 @@ export default function AdminPromotions() {
   const [resyncing, setResyncing] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [departements, setDepartements] = useState<Departement[]>([]);
+  const [filieres, setFilieres] = useState<Filiere[]>([]);
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [cyclesLmd, setCyclesLmd] = useState<Array<'LICENCE' | 'MASTER' | 'DOCTORAT'>>([]);
   const [newDepartementNom, setNewDepartementNom] = useState('');
@@ -60,13 +63,14 @@ export default function AdminPromotions() {
   const [newProgrammeCredits, setNewProgrammeCredits] = useState('180');
 
   useEffect(() => {
-    // Je charge les promotions et les cours ensemble pour alimenter la liste et le formulaire.
+    // Je charge les promotions et les listes de sélection pour alimenter l’écran.
     setLoading(true);
-    Promise.all([fetchPromotions(), fetchCours(), fetchDepartements(), fetchProgrammes(), fetchCyclesLmd()])
-      .then(([promotionRows, coursRows, departementRows, programmeRows, cyclesRows]) => {
+    Promise.all([fetchPromotions(), fetchCours(), fetchDepartements(), fetchFilieres(), fetchProgrammes(), fetchCyclesLmd()])
+      .then(([promotionRows, coursRows, departementRows, filiereRows, programmeRows, cyclesRows]) => {
         setPromotions(promotionRows);
         setCours(coursRows);
         setDepartements(departementRows);
+        setFilieres(filiereRows);
         setProgrammes(programmeRows);
         setCyclesLmd(cyclesRows);
       })
@@ -91,6 +95,7 @@ export default function AdminPromotions() {
       description: promotion.description ?? '',
       departement: promotion.departement,
       programme: promotion.programme,
+      filiereId: promotion.filiereId ?? null,
       coursIds: promotion.coursIds.map(String),
     });
     setDialogOpen(true);
@@ -103,6 +108,12 @@ export default function AdminPromotions() {
       return;
     }
 
+    const selectedFiliere = form.filiereId !== null ? filieres.find((item) => item.id === form.filiereId) : null;
+    const resolvedDepartement = selectedFiliere
+      ? departements.find((item) => item.id === selectedFiliere.departementId)?.nom ?? form.departement.trim()
+      : form.departement.trim();
+    const resolvedProgramme = selectedFiliere ? selectedFiliere.nom : form.programme.trim();
+
     setSaving(true);
     try {
       // Le backend attend à la fois un nom et un niveau, je garde les deux alignés ici.
@@ -110,8 +121,9 @@ export default function AdminPromotions() {
         nom: form.niveau.trim(),
         niveau: form.niveau.trim(),
         description: form.description.trim() || undefined,
-        departement: form.departement.trim(),
-        programme: form.programme.trim(),
+        departement: resolvedDepartement,
+        programme: resolvedProgramme,
+        filiereId: form.filiereId,
         coursIds: form.coursIds.map(Number),
       };
 
@@ -343,7 +355,7 @@ export default function AdminPromotions() {
               <Input id="promotion-niveau" placeholder="Saisir le niveau de la promotion" value={form.niveau} onChange={(e) => setForm((current) => ({ ...current, niveau: e.target.value }))} />
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
+                <div className="space-y-1.5">
                 <Label htmlFor="promotion-departement">Département *</Label>
                 <Select value={form.departement || 'none'} onValueChange={(value) => setForm((current) => ({ ...current, departement: value === 'none' ? '' : value }))}>
                   <SelectTrigger id="promotion-departement" className="w-full">
@@ -353,6 +365,29 @@ export default function AdminPromotions() {
                     <SelectItem value="none">Sélectionner un département</SelectItem>
                     {departements.map((item) => (
                       <SelectItem key={item.id} value={item.nom}>{item.nom}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="promotion-filiere">Filière</Label>
+                <Select value={form.filiereId !== null ? String(form.filiereId) : 'none'} onValueChange={(value) => {
+                  const selectedId = value === 'none' ? null : Number(value);
+                  const selectedFiliere = selectedId === null ? null : filieres.find((item) => item.id === selectedId);
+                  setForm((current) => ({
+                    ...current,
+                    filiereId: selectedId,
+                    departement: selectedFiliere ? (departements.find((item) => item.id === selectedFiliere.departementId)?.nom ?? current.departement) : current.departement,
+                    programme: selectedFiliere ? selectedFiliere.nom : current.programme,
+                  }));
+                }}>
+                  <SelectTrigger id="promotion-filiere" className="w-full">
+                    <SelectValue placeholder="Sélectionner une filière existante" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Aucune filière sélectionnée</SelectItem>
+                    {filieres.map((item) => (
+                      <SelectItem key={item.id} value={String(item.id)}>{item.nom}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

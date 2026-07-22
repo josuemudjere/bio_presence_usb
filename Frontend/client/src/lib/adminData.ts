@@ -33,6 +33,7 @@ export interface AttendanceRecord {
   photoUrl?: string;
   matricule: string;
   department: string;
+  filiere?: string;
   dateHeure?: string;
   heureArrivee?: string;
   date: string;
@@ -100,7 +101,15 @@ export interface Promotion {
   description?: string;
   departement: string;
   programme: string;
+  filiereId?: number | null;
   coursIds: number[];
+}
+
+export interface Filiere {
+  id: number;
+  nom: string;
+  code: string;
+  departementId: number;
 }
 
 export interface CycleLmdOption {

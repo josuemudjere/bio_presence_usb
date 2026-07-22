@@ -1,13 +1,17 @@
 package com.biopresence.api.service;
 
 import com.biopresence.api.Repositories.DepartementRepository;
+import com.biopresence.api.Repositories.FiliereRepository;
 import com.biopresence.api.Repositories.ProgrammeRepository;
 import com.biopresence.api.dto.DepartementRequete;
 import com.biopresence.api.dto.DepartementReponse;
+import com.biopresence.api.dto.FiliereReponse;
+import com.biopresence.api.dto.FiliereRequete;
 import com.biopresence.api.dto.ProgrammeRequete;
 import com.biopresence.api.dto.ProgrammeReponse;
 import com.biopresence.api.entity.CycleLMD;
 import com.biopresence.api.entity.Departement;
+import com.biopresence.api.entity.Filiere;
 import com.biopresence.api.entity.Programme;
 import com.biopresence.api.exception.ExceptionIntrouvable;
 
@@ -21,10 +25,12 @@ import java.util.Locale;
 public class AcademicCatalogService {
 
   private final DepartementRepository departementRepository;
+  private final FiliereRepository filiereRepository;
   private final ProgrammeRepository programmeRepository;
 
-  public AcademicCatalogService(DepartementRepository departementRepository, ProgrammeRepository programmeRepository) {
+  public AcademicCatalogService(DepartementRepository departementRepository, FiliereRepository filiereRepository, ProgrammeRepository programmeRepository) {
     this.departementRepository = departementRepository;
+    this.filiereRepository = filiereRepository;
     this.programmeRepository = programmeRepository;
   }
 
@@ -47,6 +53,70 @@ public class AcademicCatalogService {
         programme.totalCredits
       ))
       .toList();
+  }
+
+  public List<FiliereReponse> listFilieres() {
+    return filiereRepository.findAll().stream()
+      .map(filiere -> new FiliereReponse(
+        filiere.idFiliere,
+        filiere.nom,
+        filiere.code,
+        filiere.departement == null ? null : filiere.departement.idDepartement
+      ))
+      .toList();
+  }
+
+  public Filiere findFiliere(Long id) {
+    return filiereRepository.findById(id)
+      .orElseThrow(() -> new ExceptionIntrouvable("Filière introuvable."));
+  }
+
+  @Transactional
+  public FiliereReponse createFiliere(FiliereRequete request) {
+    Departement departement = findDepartement(request.departementId());
+    if (filiereRepository.existsByCodeIgnoreCase(request.code().trim())) {
+      throw new IllegalArgumentException("Ce code de filière existe déjà.");
+    }
+
+    Filiere filiere = new Filiere();
+    filiere.nom = request.nom().trim();
+    filiere.code = normalizeCode(request.code());
+    filiere.departement = departement;
+    filiereRepository.save(filiere);
+    return toFiliereResponse(filiere);
+  }
+
+  @Transactional
+  public FiliereReponse updateFiliere(Long id, FiliereRequete request) {
+    Filiere filiere = findFiliere(id);
+    Departement departement = findDepartement(request.departementId());
+    String code = normalizeCode(request.code());
+    filiereRepository.findByCodeIgnoreCase(code)
+      .filter(existing -> !existing.idFiliere.equals(id))
+      .ifPresent(existing -> {
+        throw new IllegalArgumentException("Ce code de filière existe déjà.");
+      });
+
+    filiere.nom = request.nom().trim();
+    filiere.code = code;
+    filiere.departement = departement;
+    filiereRepository.save(filiere);
+    return toFiliereResponse(filiere);
+  }
+
+  @Transactional
+  public void deleteFiliere(Long id) {
+    Filiere filiere = findFiliere(id);
+    filiereRepository.delete(filiere);
+  }
+
+  private FiliereReponse toFiliereResponse(Filiere filiere) {
+    return new FiliereReponse(
+      filiere.idFiliere,
+      filiere.nom,
+      filiere.code,
+      filiere.departement == null ? null : filiere.departement.idDepartement
+    );
   }
 
   public Departement findDepartement(Long id) {

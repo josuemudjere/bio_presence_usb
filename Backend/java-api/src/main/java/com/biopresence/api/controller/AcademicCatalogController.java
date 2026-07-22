@@ -2,6 +2,8 @@ package com.biopresence.api.controller;
 
 import com.biopresence.api.dto.DepartementRequete;
 import com.biopresence.api.dto.DepartementReponse;
+import com.biopresence.api.dto.FiliereRequete;
+import com.biopresence.api.dto.FiliereReponse;
 import com.biopresence.api.dto.ProgrammeRequete;
 import com.biopresence.api.dto.ProgrammeReponse;
 import com.biopresence.api.entity.CycleLMD;
@@ -70,6 +72,27 @@ public class AcademicCatalogController {
   @DeleteMapping("/programmes/{id}")
   public ResponseEntity<Void> deleteProgramme(@PathVariable Long id) {
     academicCatalogService.deleteProgramme(id);
+    return ResponseEntity.noContent().build();
+  }
+
+  @GetMapping("/filieres")
+  public List<FiliereReponse> listFilieres() {
+    return academicCatalogService.listFilieres();
+  }
+
+  @PostMapping("/filieres")
+  public FiliereReponse createFiliere(@Valid @RequestBody FiliereRequete request) {
+    return academicCatalogService.createFiliere(request);
+  }
+
+  @PutMapping("/filieres/{id}")
+  public FiliereReponse updateFiliere(@PathVariable Long id, @Valid @RequestBody FiliereRequete request) {
+    return academicCatalogService.updateFiliere(id, request);
+  }
+
+  @DeleteMapping("/filieres/{id}")
+  public ResponseEntity<Void> deleteFiliere(@PathVariable Long id) {
+    academicCatalogService.deleteFiliere(id);
     return ResponseEntity.noContent().build();
   }
 

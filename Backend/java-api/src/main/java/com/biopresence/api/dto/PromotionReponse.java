@@ -10,6 +10,7 @@ public record PromotionReponse(
   String description,
   String departement,
   String programme,
+  Long filiereId,
   List<Long> coursIds
 ) {
 }

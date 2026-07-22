@@ -17,4 +17,6 @@ public interface PresenceRepository extends JpaRepository<Presence, UUID> {
   List<Presence> findByStudentIdAndRecordDateOrderByCheckInAsc(UUID studentId, LocalDate recordDate);
 
   Optional<Presence> findFirstByStudentIdAndRecordDateAndCheckOutIsNullOrderByCheckInAsc(UUID studentId, LocalDate recordDate);
+
+  void deleteByStudentId(UUID studentId);
 }

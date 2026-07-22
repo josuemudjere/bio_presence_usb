@@ -19,20 +19,37 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 import java.util.List;
+import com.biopresence.api.mqtt.MqttBridgeService;
 
 @RestController
 @RequestMapping("/api/attendance")
 public class PresenceController {
   private final PresenceService attendanceService;
+  private final MqttBridgeService mqttBridgeService;
 
-  public PresenceController(PresenceService attendanceService) {
+  public PresenceController(PresenceService attendanceService, MqttBridgeService mqttBridgeService) {
     this.attendanceService = attendanceService;
+    this.mqttBridgeService = mqttBridgeService;
   }
 
   @PostMapping("/scan")
   public ScanReponse scan(@Valid @RequestBody PresenceScanRequete request) {
     // Déclenche un pointage biométrique pour le cours ciblé.
     return attendanceService.scan(request);
+  }
+
+  record ScanRequestRequete(Long coursId) {}
+
+  @PostMapping("/scan-request")
+  public ScanReponse scanRequest(@Valid @RequestBody ScanRequestRequete request) {
+    // Le backend publie la commande SCAN vers le capteur et persiste l'événement reçu.
+    // Timeout par défaut 30s
+    long timeoutMs = 30_000L;
+    // Le service retourne l'id du nouvel enregistrement en cas de succès.
+    String attendanceId = mqttBridgeService.requestScan(request.coursId(), timeoutMs);
+    // Recharger la présence depuis la base si nécessaire
+    // Ici on renvoie une réponse simple indiquant succès.
+    return new ScanReponse("Scan exécuté via backend", null);
   }
 
   @PostMapping("/manual")

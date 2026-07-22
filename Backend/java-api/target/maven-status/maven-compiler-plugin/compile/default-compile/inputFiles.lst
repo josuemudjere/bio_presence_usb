@@ -4,6 +4,7 @@
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/Repositories/DepartementRepository.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/Repositories/EmpreinteDigitaleRepository.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/Repositories/EtudiantRepository.java
+/Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/Repositories/FiliereRepository.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/Repositories/InscriptionRepository.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/Repositories/JustificatifRepository.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/Repositories/ParametresCoursRepository.java
@@ -29,6 +30,8 @@
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/DepartementRequete.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/EtudiantReponse.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/EtudiantRequete.java
+/Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/FiliereReponse.java
+/Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/FiliereRequete.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/JustificatifDepartAnticipeRequete.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/LigneEligibiliteReponse.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/dto/MetadataEmpreinteRequete.java
@@ -56,6 +59,7 @@
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/entity/Enseignant.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/entity/Etudiant.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/entity/Faculte.java
+/Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/entity/Filiere.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/entity/Inscription.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/entity/Justificatif.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/entity/LogPointage.java
@@ -78,6 +82,7 @@
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/entity/Utilisateur.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/exception/ExceptionIntrouvable.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/exception/GestionnaireExceptions.java
+/Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/mqtt/MqttBridgeService.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/mqtt/package-info.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/security/AdministrateurController.java
 /Users/josuemudjere/Downloads/Projet_tutoré_bio/Backend/java-api/src/main/java/com/biopresence/api/security/AuthService.java

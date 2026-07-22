@@ -44,6 +44,8 @@ export default function UtilisateurTableauDeBord() {
   const startTimeInputRef = useRef<HTMLInputElement>(null);
   const endTimeInputRef = useRef<HTMLInputElement>(null);
   const lastScheduleCourseIdRef = useRef<number | null>(null);
+  const lastLoadedCourseIdRef = useRef<number | null>(null);
+  const loadingShownRef = useRef(false);
   const serialSupportError = serialSensor.getSupportError();
 
   const todayLabel = useMemo(
@@ -65,13 +67,19 @@ export default function UtilisateurTableauDeBord() {
         return;
       }
 
-      setAssignedCourses(allCourses.filter((course) => assignedCourseIds.includes(course.id)));
+      const filteredCourses = allCourses.filter((course) => assignedCourseIds.includes(course.id));
+      setAssignedCourses(filteredCourses);
+
+      if (!filteredCourses.some((course) => course.id === selectedCoursId)) {
+        setSelectedCoursId(filteredCourses[0]?.id ?? null);
+      }
     } catch {
       if (mounted && !mounted.current) {
         return;
       }
 
       setAssignedCourses([]);
+      setSelectedCoursId(null);
     }
   };
 
@@ -143,14 +151,25 @@ export default function UtilisateurTableauDeBord() {
     let mounted = true;
 
     const loadStats = async () => {
+      console.debug('[TeacherDash] loadStats called', { selectedCoursId, lastLoaded: lastLoadedCourseIdRef.current, loadingShown: loadingShownRef.current });
       if (!selectedCoursId) {
         setEnrolledStudents([]);
         setTodayRecords([]);
         setWeekRecords([]);
+        if (mounted && loadingShownRef.current) {
+          console.debug('[TeacherDash] clearing loading on empty selection');
+          setLoading(false);
+          loadingShownRef.current = false;
+        }
         return;
       }
 
-      setLoading(true);
+      // N'affiche le loader visuel que lorsqu'on change de cours (première charge).
+      if (lastLoadedCourseIdRef.current !== selectedCoursId) {
+        console.debug('[TeacherDash] first load for this course, show loader', { selectedCoursId });
+        setLoading(true);
+        loadingShownRef.current = true;
+      }
       try {
         const [todayRows, weekRows, students] = await Promise.all([
           fetchAttendanceForCours(selectedCoursId, todayIso),
@@ -175,7 +194,12 @@ export default function UtilisateurTableauDeBord() {
         setWeekRecords([]);
       } finally {
         if (mounted) {
-          setLoading(false);
+          if (loadingShownRef.current) {
+            console.debug('[TeacherDash] hiding loader after load', { selectedCoursId });
+            setLoading(false);
+            loadingShownRef.current = false;
+          }
+          lastLoadedCourseIdRef.current = selectedCoursId;
         }
       }
     };
@@ -268,9 +292,16 @@ export default function UtilisateurTableauDeBord() {
     setSavingSchedule(true);
     try {
       const updatedCourse = await updateCours(selectedCourse.id, {
-        ...selectedCourse,
+        nom: selectedCourse.nom,
+        code: selectedCourse.code,
+        credits: selectedCourse.credits ?? 0,
+        volumeHoraire: selectedCourse.volumeHoraire,
+        horaire: selectedCourse.horaire,
+        seuilEligibilite: selectedCourse.seuilEligibilite,
         heureDebut: effectiveStartTime,
         heureFin: effectiveEndTime,
+        departementId: selectedCourse.departementId,
+        programmeId: selectedCourse.programmeId,
       });
 
       setAssignedCourses((current) => current.map((course) => (
@@ -360,10 +391,17 @@ export default function UtilisateurTableauDeBord() {
             <p className="-mt-4 text-xs text-amber-700">{serialSupportError}</p>
           )}
 
-          {assignedCourseIds.length === 0 ? (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-700">
-              Aucun cours assigné à votre compte. Contactez un administrateur.
-            </div>
+          {assignedCourses.length === 0 ? (
+            // Aucun cours réel disponible (soit aucun assigné, soit les cours assignés ont été supprimés)
+            assignedCourseIds.length === 0 ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-700">
+                Aucun cours assigné à votre compte. 
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-700">
+                Aucun cours disponible actuellement
+              </div>
+            )
           ) : (
             <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
               <Card className="border-slate-200 shadow-sm">
@@ -397,7 +435,7 @@ export default function UtilisateurTableauDeBord() {
                     </div>
                     <div className="rounded-xl bg-slate-50 p-4">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Inscrits</p>
-                      <p className="mt-1 text-sm font-medium text-slate-800">{loading ? '--' : selectedCourse?.enrolledStudentCount ?? 0} étudiant(s)</p>
+                      <p className="mt-1 text-sm font-medium text-slate-800">{enrolledStudents.length} étudiant(s)</p>
                     </div>
                   </div>
 
@@ -433,9 +471,7 @@ export default function UtilisateurTableauDeBord() {
 
                   <div className="rounded-xl border border-slate-200 bg-white p-4">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Étudiants liés au cours</p>
-                    {loading ? (
-                      <p className="mt-2 text-sm text-slate-500">Chargement des étudiants...</p>
-                    ) : enrolledStudents.length === 0 ? (
+                    {enrolledStudents.length === 0 ? (
                       <p className="mt-2 text-sm text-slate-500">Aucun étudiant inscrit dans inscriptions pour ce cours.</p>
                     ) : (
                       <div className="mt-3 max-h-48 space-y-2 overflow-y-auto pr-1">
@@ -478,7 +514,7 @@ export default function UtilisateurTableauDeBord() {
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/15">
                   <metric.icon className="h-5 w-5 text-primary" />
                 </div>
-                <p className="mt-4 text-3xl font-bold tracking-tight text-slate-900">{loading ? '--' : metric.value}</p>
+                <p className="mt-4 text-3xl font-bold tracking-tight text-slate-900">{metric.value}</p>
                 <p className="mt-1 text-sm font-medium text-slate-700">{metric.title}</p>
                 <p className="mt-0.5 text-xs text-slate-400">{metric.hint}</p>
               </div>
@@ -490,13 +526,13 @@ export default function UtilisateurTableauDeBord() {
               <CardTitle className="text-base">Lecture rapide</CardTitle>
             </CardHeader>
             <CardContent>
-              {loading ? (
+              {loading && selectedCoursId != null ? (
                 <div className="flex items-center gap-2 text-sm text-slate-500">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Chargement des statistiques...
+                  
                 </div>
               ) : selectedCoursId == null ? (
-                <p className="text-sm text-slate-500">Sélectionnez un cours pour afficher ses statistiques.</p>
+                <p className="text-sm text-slate-500"></p>
               ) : todayRecords.length === 0 && weekRecords.length === 0 ? (
                 <p className="text-sm text-slate-500">Aucun pointage enregistré pour ce cours sur la période en cours.</p>
               ) : (

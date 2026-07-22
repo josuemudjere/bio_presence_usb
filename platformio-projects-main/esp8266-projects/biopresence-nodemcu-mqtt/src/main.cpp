@@ -223,13 +223,26 @@ void setupSignals() {
 }
 
 void drawFingerprintIcon(int16_t x, int16_t y) {
-  display.drawRoundRect(x, y, 28, 36, 10, SSD1306_WHITE);
-  display.drawRoundRect(x + 4, y + 4, 20, 28, 8, SSD1306_WHITE);
-  display.drawRoundRect(x + 8, y + 8, 12, 20, 6, SSD1306_WHITE);
-  display.drawLine(x + 14, y + 6, x + 14, y + 30, SSD1306_WHITE);
-  display.drawLine(x + 10, y + 12, x + 18, y + 12, SSD1306_WHITE);
-  display.drawLine(x + 10, y + 18, x + 18, y + 18, SSD1306_WHITE);
-  display.drawLine(x + 10, y + 24, x + 18, y + 24, SSD1306_WHITE);
+  const int16_t cx = x + 16;
+  const int16_t cy = y + 18;
+
+  // Outer fingerprint loop
+  display.drawCircle(cx, cy, 12, SSD1306_WHITE);
+  display.drawCircleHelper(cx, cy, 10, 3, SSD1306_WHITE);
+  display.drawCircleHelper(cx, cy + 2, 8, 3, SSD1306_WHITE);
+  display.drawCircleHelper(cx, cy + 4, 6, 3, SSD1306_WHITE);
+  display.drawCircleHelper(cx, cy + 6, 4, 3, SSD1306_WHITE);
+
+  // Inner ridge details
+  display.drawLine(cx - 5, cy - 2, cx - 7, cy + 8, SSD1306_WHITE);
+  display.drawLine(cx - 2, cy - 6, cx - 2, cy + 10, SSD1306_WHITE);
+  display.drawLine(cx + 2, cy - 8, cx + 2, cy + 10, SSD1306_WHITE);
+  display.drawLine(cx + 5, cy - 4, cx + 5, cy + 8, SSD1306_WHITE);
+
+  // Fingerprint core flicks
+  display.drawPixel(cx - 1, cy - 12, SSD1306_WHITE);
+  display.drawPixel(cx + 1, cy - 12, SSD1306_WHITE);
+  display.drawPixel(cx, cy - 10, SSD1306_WHITE);
 }
 
 void drawSuccessIcon(int16_t x, int16_t y) {
@@ -259,7 +272,7 @@ void renderDisplay(DisplayIcon icon, const char *title, const char *line1 = null
 
   switch (icon) {
     case DisplayIcon::Fingerprint:
-      drawFingerprintIcon(8, 14);
+      drawFingerprintIcon(8, 16);
       break;
     case DisplayIcon::Success:
       drawSuccessIcon(8, 16);
@@ -587,7 +600,7 @@ bool connectToMqtt() {
   if (!connected) {
     Serial.print("MQTT connection failed, rc=");
     Serial.println(mqttClient.state());
-    renderDisplay(DisplayIcon::Error, "Broker MQTT", "Connexion impossible", "Nouvel essai...");
+    renderDisplay(DisplayIcon::Error, "Connexion impossible" "Nouvel essai...");
     playErrorSignal();
     delay(MQTT_RETRY_DELAY_MS);
     return false;
@@ -597,7 +610,7 @@ bool connectToMqtt() {
     Serial.println("Failed to subscribe to command topic");
   }
   playSuccessSignal();
-  publishStatus("ONLINE", "Connexion MQTT etablie");
+  publishStatus("ONLINE", "Connexion etablie");
   publishStatus("IDLE", "Capteur pret");
   showIdlePrompt();
   return true;

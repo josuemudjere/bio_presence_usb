@@ -14,7 +14,7 @@ import AdminUsers from "./pages/AdminEtudiants";
 import AdminCours from "./pages/AdminCours";
 import AdminPromotions from "./pages/AdminPromotions";
 import AdminUtilisateurs from "./pages/AdminUtilisateurs";
-import UtilisateurPresence from "./pages/UtilisateurPresence";
+import AdminPresence from "./pages/AdminPresence";
 import UtilisateurTableauDeBord from "./pages/UtilisateurTableauDeBord";
 import UtilisateurRapports from "./pages/UtilisateurRapports";
 import UtilisateurEligibilite from "./pages/UtilisateurEligibilite";
@@ -170,7 +170,7 @@ function Router() {
           </Route>
           <Route path={"/enseignant/presence"}>
             <ProtectedRoute requiredRole="teacher">
-              <UtilisateurPresence />
+              <AdminPresence />
             </ProtectedRoute>
           </Route>
           <Route path={"/enseignant/rapports"}>

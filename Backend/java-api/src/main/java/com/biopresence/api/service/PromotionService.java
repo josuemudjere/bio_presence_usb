@@ -6,6 +6,7 @@ import com.biopresence.api.dto.PromotionReponse;
 import com.biopresence.api.dto.PromotionRequete;
 import com.biopresence.api.entity.Cours;
 import com.biopresence.api.entity.Etudiant;
+import com.biopresence.api.entity.Filiere;
 import com.biopresence.api.entity.Promotion;
 import com.biopresence.api.exception.ExceptionIntrouvable;
 
@@ -25,17 +26,20 @@ public class PromotionService {
   private final EtudiantRepository studentRepository;
   private final CoursService coursService;
   private final InscriptionService inscriptionService;
+  private final AcademicCatalogService academicCatalogService;
 
   public PromotionService(
     PromotionRepository promotionRepository,
     EtudiantRepository studentRepository,
     CoursService coursService,
-    InscriptionService inscriptionService
+    InscriptionService inscriptionService,
+    AcademicCatalogService academicCatalogService
   ) {
     this.promotionRepository = promotionRepository;
     this.studentRepository = studentRepository;
     this.coursService = coursService;
     this.inscriptionService = inscriptionService;
+    this.academicCatalogService = academicCatalogService;
   }
 
   public List<PromotionReponse> listAll() {
@@ -120,8 +124,14 @@ public class PromotionService {
     promotion.nom = niveau;
     promotion.niveau = niveau;
     promotion.description = normalizeNullable(request.description());
-    promotion.departement = request.departement().trim();
-    promotion.programme = request.programme().trim();
+    promotion.filiere = request.filiereId() == null ? null : academicCatalogService.findFiliere(request.filiereId());
+    if (promotion.filiere != null) {
+      promotion.departement = promotion.filiere.departement == null ? request.departement().trim() : promotion.filiere.departement.nom;
+      promotion.programme = promotion.filiere.nom;
+    } else {
+      promotion.departement = request.departement().trim();
+      promotion.programme = request.programme().trim();
+    }
     promotion.coursIds = normalizeCoursIds(request.coursIds());
   }
 
@@ -134,6 +144,7 @@ public class PromotionService {
       promotion.description,
       promotion.departement,
       promotion.programme,
+      promotion.filiere == null ? null : promotion.filiere.idFiliere,
       coursIds
     );
   }

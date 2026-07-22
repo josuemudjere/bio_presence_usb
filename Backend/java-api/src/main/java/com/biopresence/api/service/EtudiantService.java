@@ -4,6 +4,7 @@ import com.biopresence.api.dto.EtudiantRequete;
 import com.biopresence.api.dto.MetadataEmpreinteRequete;
 import com.biopresence.api.Repositories.EmpreinteDigitaleRepository;
 import com.biopresence.api.Repositories.EtudiantRepository;
+import com.biopresence.api.Repositories.PresenceRepository;
 import com.biopresence.api.dto.EtudiantReponse;
 import com.biopresence.api.dto.ReservationEmpreinteReponse;
 import com.biopresence.api.entity.Cours;
@@ -35,6 +36,7 @@ import java.util.stream.Collectors;
 public class EtudiantService {
   private final EtudiantRepository studentRepository;
   private final EmpreinteDigitaleRepository fingerprintRepository;
+  private final PresenceRepository presenceRepository;
   private final PromotionService promotionService;
   private final CoursService coursService;
   private final InscriptionService inscriptionService;
@@ -42,12 +44,14 @@ public class EtudiantService {
   public EtudiantService(
     EtudiantRepository studentRepository,
     EmpreinteDigitaleRepository fingerprintRepository,
+    PresenceRepository presenceRepository,
     PromotionService promotionService,
     CoursService coursService,
     InscriptionService inscriptionService
   ) {
     this.studentRepository = studentRepository;
     this.fingerprintRepository = fingerprintRepository;
+    this.presenceRepository = presenceRepository;
     this.promotionService = promotionService;
     this.coursService = coursService;
     this.inscriptionService = inscriptionService;
@@ -210,6 +214,7 @@ public class EtudiantService {
   public void delete(UUID id) {
     Etudiant student = findEntity(id);
     fingerprintRepository.deleteByEtudiantId(student.id);
+    presenceRepository.deleteByStudentId(student.id);
     inscriptionService.replaceStudentInscriptions(student, List.of(), List.of());
     studentRepository.deleteById(Objects.requireNonNull(id));
   }

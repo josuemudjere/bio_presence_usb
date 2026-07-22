@@ -1,4 +1,4 @@
-import type { AttendanceRecord, Cours, CourseSettings, Departement, Programme, Promotion, Student, Utilisateur } from '@/lib/adminData';
+import type { AttendanceRecord, Cours, CourseSettings, Departement, Filiere, Programme, Promotion, Student, Utilisateur } from '@/lib/adminData';
 import { getStoredAuthToken } from '@/contexts/AuthContext';
 import { getApiBaseUrl } from '@/lib/apiBase';
 import { parseFingerprintIds } from '@/lib/utils';
@@ -39,6 +39,7 @@ interface ApiAttendance {
   photoUrl?: string;
   matricule: string;
   department: string;
+  filiere?: string;
   dateHeure?: string;
   heureArrivee?: string;
   recordDate: string;
@@ -124,6 +125,13 @@ interface ApiProgramme {
   totalCredits?: number;
 }
 
+interface ApiFiliere {
+  id: number;
+  nom: string;
+  code: string;
+  departementId: number;
+}
+
 interface AcademicCatalogDepartementPayload {
   nom: string;
   code: string;
@@ -144,6 +152,7 @@ interface ApiPromotion {
   description?: string;
   departement: string;
   programme: string;
+  filiereId?: number | null;
   coursIds: number[];
 }
 
@@ -251,6 +260,15 @@ function toClientProgramme(apiProgramme: ApiProgramme): Programme {
   };
 }
 
+function toClientFiliere(apiFiliere: ApiFiliere): Filiere {
+  return {
+    id: apiFiliere.id,
+    nom: apiFiliere.nom,
+    code: apiFiliere.code,
+    departementId: apiFiliere.departementId,
+  };
+}
+
 function toClientPromotion(apiPromotion: ApiPromotion): Promotion {
   return {
     id: apiPromotion.id,
@@ -259,6 +277,7 @@ function toClientPromotion(apiPromotion: ApiPromotion): Promotion {
     description: apiPromotion.description,
     departement: apiPromotion.departement,
     programme: apiPromotion.programme,
+    filiereId: apiPromotion.filiereId ?? null,
     coursIds: apiPromotion.coursIds ?? [],
   };
 }
@@ -315,6 +334,7 @@ function toClientAttendance(apiAttendance: ApiAttendance): AttendanceRecord {
     photoUrl: apiAttendance.photoUrl,
     matricule: apiAttendance.matricule,
     department: apiAttendance.department,
+    filiere: apiAttendance.filiere,
     dateHeure: apiAttendance.dateHeure,
     heureArrivee: apiAttendance.heureArrivee ? normalizeTime(apiAttendance.heureArrivee) : undefined,
     date: apiAttendance.recordDate,
@@ -601,6 +621,11 @@ export async function fetchDepartements(): Promise<Departement[]> {
 export async function fetchProgrammes(): Promise<Programme[]> {
   const programmes = await request<ApiProgramme[]>('/academic/programmes');
   return programmes.map(toClientProgramme);
+}
+
+export async function fetchFilieres(): Promise<Filiere[]> {
+  const filieres = await request<ApiFiliere[]>('/academic/filieres');
+  return filieres.map(toClientFiliere);
 }
 
 export async function createDepartement(input: AcademicCatalogDepartementPayload): Promise<Departement> {
