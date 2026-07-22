@@ -30,7 +30,7 @@ function normalizeBiometricErrorText(message: string): string {
     normalized.includes('mqtt') ||
     normalized.includes('même réseau')
   ) {
-    return 'Capteur biométrique indisponible. Vérifiez qu\'il est allumé et prêt à être utilisé.';
+    return 'La communication avec le capteur n\'est pas disponible pour le moment. Le pointage peut continuer via le backend si le service est prêt.';
   }
 
   if (

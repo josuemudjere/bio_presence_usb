@@ -42,14 +42,9 @@ public class PresenceController {
 
   @PostMapping("/scan-request")
   public ScanReponse scanRequest(@Valid @RequestBody ScanRequestRequete request) {
-    // Le backend publie la commande SCAN vers le capteur et persiste l'événement reçu.
-    // Timeout par défaut 30s
+    // Le backend publie la commande SCAN vers le capteur, persiste l'événement reçu puis renvoie la présence créée.
     long timeoutMs = 30_000L;
-    // Le service retourne l'id du nouvel enregistrement en cas de succès.
-    String attendanceId = mqttBridgeService.requestScan(request.coursId(), timeoutMs);
-    // Recharger la présence depuis la base si nécessaire
-    // Ici on renvoie une réponse simple indiquant succès.
-    return new ScanReponse("Scan exécuté via backend", null);
+    return mqttBridgeService.requestScan(request.coursId(), timeoutMs);
   }
 
   @PostMapping("/manual")

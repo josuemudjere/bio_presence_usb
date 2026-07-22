@@ -110,7 +110,7 @@ public class MqttBridgeService {
     }
   }
 
-  public String requestScan(Long coursId, long timeoutMs) {
+  public ScanReponse requestScan(Long coursId, long timeoutMs) {
     if (client == null || !client.isConnected()) {
       throw new IllegalStateException("MQTT bridge not connected");
     }
@@ -147,10 +147,8 @@ public class MqttBridgeService {
           throw new IllegalStateException("MQTT response missing fingerprintId");
         }
 
-        // Delegate to existing PresenceService to persist the attendance
         var req = new PresenceScanRequete(fingerprintId, coursId == null ? null : coursId);
-        var scanResp = presenceService.scan(req);
-        return scanResp.attendance().id().toString();
+        return presenceService.scan(req);
       }
 
       throw new IllegalStateException("Unexpected MQTT response event: " + response.toString());

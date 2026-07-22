@@ -539,6 +539,18 @@ export async function scanAttendanceForCours(fingerprintTemplateId: string, cour
   };
 }
 
+export async function requestBackendAttendanceScan(coursId: number): Promise<{ message: string; attendance: AttendanceRecord }> {
+  const response = await request<ApiScanResponse>('/attendance/scan-request', {
+    method: 'POST',
+    body: JSON.stringify({ coursId }),
+  });
+
+  return {
+    message: response.message,
+    attendance: toClientAttendance(response.attendance),
+  };
+}
+
 export async function fetchAttendanceForCours(coursId: number, date: string): Promise<AttendanceRecord[]> {
   const records = await request<ApiAttendance[]>(`/attendance/course/${coursId}?date=${encodeURIComponent(date)}`);
   return records.map(toClientAttendance);

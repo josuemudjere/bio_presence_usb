@@ -7,7 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { type Cours, type Promotion, type Student } from '@/lib/adminData';
 import { createManualAttendance, fetchCours, fetchPromotions, fetchStudentsForCours, scanAttendanceForCours } from '@/lib/adminApi';
-import { getBiometricErrorMessage, notifyRejectedFingerprintScan, scanFingerprintFromSensor } from '@/lib/biometricSensor';
+import { getAttendanceScanAvailability, getAttendanceScanProgressMessage } from '@/lib/attendanceScan';
+import { getBiometricErrorMessage } from '@/lib/biometricSensor';
 import { serialSensor, type ConnectionState } from '@/lib/serialSensor';
 import { hasFingerprintId } from '@/lib/utils';
 
@@ -173,6 +174,7 @@ export default function AdminSensor() {
   const [isApiReady, setIsApiReady] = useState(false);
   const [sensorState, setSensorState] = useState<SensorState>('idle');
   const [isListening, setIsListening] = useState(false);
+  const [progressMessage, setProgressMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [result, setResult] = useState<SensorResult | null>(null);
   const [autoQueueEnabled, setAutoQueueEnabled] = useState(false);
@@ -254,7 +256,15 @@ export default function AdminSensor() {
   );
   const isCourseScheduleConfigured = Boolean(selectedCourse?.heureDebut && selectedCourse?.heureFin);
   const isPointageWindowOpen = isWithinAttendanceWindow(selectedCourse?.heureDebut, selectedCourse?.heureFin, new Date(clockTick));
-  const canScan = connectionState === 'connected' && Boolean(selectedCoursId) && isCourseScheduleConfigured && isPointageWindowOpen;
+  const hasRegisteredFingerprints = students.some((student) => student.fingerprintRegistered && student.fingerprintTemplateId);
+  const scanAvailability = useMemo(() => getAttendanceScanAvailability({
+    connectionState,
+    selectedCoursId,
+    isCourseScheduleConfigured,
+    isPointageWindowOpen,
+    hasRegisteredFingerprints,
+  }), [connectionState, selectedCoursId, isCourseScheduleConfigured, isPointageWindowOpen, hasRegisteredFingerprints]);
+  const canScan = scanAvailability.canScan;
   const filteredStudents = useMemo(() => students, [students]);
 
   const todayLabel = useMemo(
@@ -407,13 +417,9 @@ export default function AdminSensor() {
       return;
     }
 
-    const hasRegisteredFingerprints = students.some(
-      (student) => student.fingerprintRegistered && student.fingerprintTemplateId
-    );
-
-    if (!hasRegisteredFingerprints) {
+    if (!scanAvailability.canScan) {
       setSensorState('error');
-      setErrorMessage('Aucune empreinte enregistrée.');
+      setErrorMessage(scanAvailability.reason ?? 'Impossible d’effectuer le scan pour ce cours.');
       setResult(null);
       return;
     }
@@ -421,6 +427,7 @@ export default function AdminSensor() {
     scanInProgressRef.current = true;
     setIsListening(true);
     setErrorMessage('');
+    setProgressMessage('En attente du doigt sur le capteur');
 
     if (resultTimeoutRef.current !== null) {
       window.clearTimeout(resultTimeoutRef.current);
@@ -428,56 +435,29 @@ export default function AdminSensor() {
     }
 
     setResult(null);
-    // L'état reste 'idle' pendant l'écoute du capteur
 
-    let fingerprintId: string | null = null;
+    const unsubscribeProgress = serialSensor.onProgress((event) => {
+      setProgressMessage(getAttendanceScanProgressMessage(event.event));
+    });
 
     try {
-      const scanDetectedAt = new Date();
-
-      // La promesse se résout quand l'empreinte a déjà été reconnue par le capteur.
-      const scannedFingerprintId = await scanFingerprintFromSensor({
-        mode: 'attendance',
-      });
-      fingerprintId = scannedFingerprintId;
-
+      setSensorState('idle');
+      const fingerprintId = await serialSensor.scan('attendance');
       if (!pageActiveRef.current) {
         return;
       }
 
-      // Le capteur a fini sa lecture, il ne reste plus qu'à valider la présence côté application.
       setIsListening(false);
       setSensorState('loading');
+      setProgressMessage('Recherche de la correspondance en backend...');
 
-      if (!isApiReady) {
-        const matchedStudent = students.find(
-          (student) => hasFingerprintId(student.fingerprintTemplateIds ?? student.fingerprintTemplateId, scannedFingerprintId)
-        );
-
-        if (!matchedStudent) {
-          throw new Error('Empreinte non reconnue.');
-        }
-
-        const fullName = formatStudentFullName(matchedStudent);
-        setResult({
-          studentName: fullName,
-          matricule: matchedStudent.matricule,
-          department: matchedStudent.department,
-          filiere: resolveStudentFiliere(matchedStudent, promotions),
-          photoUrl: resolveStudentPhoto(matchedStudent, fullName),
-          scannedAtLabel: formatScanTimestamp(scanDetectedAt),
-          attendanceType: 'entry',
-        });
-        setSensorState('success');
-        speakWelcome(fullName);
-        return;
-      }
-
-      const scanResponse = await scanAttendanceForCours(scannedFingerprintId, selectedCoursId);
+      const scanResponse = await scanAttendanceForCours(fingerprintId, selectedCoursId);
       if (!pageActiveRef.current) {
         return;
       }
+
       setScanFailureCount(0);
+      setProgressMessage('Correspondance trouvée. Validation en cours...');
       const matchedStudent = students.find((student) => student.id === scanResponse.attendance.studentId);
       const studentName = matchedStudent ? formatStudentFullName(matchedStudent) : scanResponse.attendance.studentName;
 
@@ -497,8 +477,7 @@ export default function AdminSensor() {
         checkOutTime,
       });
       setSensorState('success');
-
-      // Détecter le départ anticipé
+      setProgressMessage('');
 
       if (attendanceType === 'exit') {
         speakGoodbye(studentName);
@@ -510,12 +489,9 @@ export default function AdminSensor() {
         return;
       }
 
-      if (typeof fingerprintId === 'string' && fingerprintId.length > 0) {
-        void notifyRejectedFingerprintScan(normalizeErrorMessage(error)).catch(() => undefined);
-      }
-
       setIsListening(false);
       setSensorState('error');
+      setProgressMessage('');
       const normalizedMessage = normalizeErrorMessage(error);
       const nextFailureCount = scanFailureCount + 1;
       setErrorMessage(normalizedMessage);
@@ -527,6 +503,7 @@ export default function AdminSensor() {
         setManualEntryOpen(true);
       }
     } finally {
+      unsubscribeProgress();
       scanInProgressRef.current = false;
     }
   };
@@ -669,7 +646,7 @@ export default function AdminSensor() {
                     <button
                       type="button"
                       onClick={handleScan}
-                      disabled={sensorState === 'loading' || connectionState !== 'connected'}
+                      disabled={sensorState === 'loading' || !canScan}
                       className={`group relative flex h-64 w-64 items-center justify-center rounded-full border-8 ${
                         isListening
                           ? 'animate-pulse border-emerald-400 bg-gradient-to-br from-emerald-100 to-cyan-100'
@@ -693,15 +670,14 @@ export default function AdminSensor() {
                     </button>
 
                     <div className="text-center">
-                      {sensorState === 'idle' && !isListening && connectionState !== 'connected' && (
-                        <p className="text-base text-slate-400">Connectez le capteur pour scanner</p>
+                      {sensorState === 'idle' && !isListening && !canScan && scanAvailability.reason && (
+                        <p className="text-base text-slate-500">{scanAvailability.reason}</p>
                       )}
-                      {sensorState === 'idle' && !isListening && connectionState === 'connected' && (
-                        <p className="text-base text-slate-700">En attente du doigt sur le capteur</p>
+                      {sensorState === 'idle' && !isListening && canScan && (
+                        <p className="text-base text-slate-700">{progressMessage || 'En attente du doigt sur le capteur'}</p>
                       )}
-                      {sensorState === 'idle' && !isListening && canScan && <p className="text-base text-slate-700">En attente du doigt sur le capteur</p>}
-                      {sensorState === 'idle' && isListening && <p className="text-base font-medium text-emerald-700 animate-pulse">Posez votre doigt sur le capteur...</p>}
-                      {sensorState === 'loading' && <p className="text-base font-medium text-emerald-700">Empreinte reconnue. Validation de la présence en cours...</p>}
+                      {sensorState === 'idle' && isListening && <p className="text-base font-medium text-emerald-700 animate-pulse">{progressMessage || 'Posez votre doigt sur le capteur...'}</p>}
+                      {sensorState === 'loading' && <p className="text-base font-medium text-emerald-700">{progressMessage || 'Empreinte reconnue. Validation de la présence en cours...'}</p>}
                       {sensorState === 'error' && <p className="text-base font-medium text-rose-700">{errorMessage || 'Empreinte non reconnue.'}</p>}
                       {sensorState === 'success' && <p className="text-base font-medium text-emerald-700">Empreinte reconnue avec succès</p>}
                     </div>
@@ -712,11 +688,11 @@ export default function AdminSensor() {
                       className="rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40"
                     >
                       <ScanSearch className="mr-2 h-4 w-4" />
-                      {connectionState !== 'connected'
-                        ? 'Capteur non connecté'
-                        : sensorState === 'loading'
+                      {sensorState === 'loading'
                         ? 'Validation en cours...'
-                        : 'Scanner maintenant'}
+                        : canScan
+                        ? 'Scanner maintenant'
+                        : scanAvailability.reason ?? 'Scanner maintenant'}
                     </Button>
 
                     {connectionState === 'connected' && (

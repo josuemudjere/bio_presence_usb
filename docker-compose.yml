@@ -11,6 +11,8 @@ services:
       SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/biopresence?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&zeroDateTimeBehavior=CONVERT_TO_NULL
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      APP_MQTT_BROKER_URL: tcp://mqtt:1883
+      APP_MQTT_BASE_TOPIC: biopresence/sensor
     depends_on:
       - db
       - mqtt

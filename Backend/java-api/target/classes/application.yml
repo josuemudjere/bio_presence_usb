@@ -18,6 +18,9 @@ app:
     allowed-origins:
       - http://localhost:5173
       - http://localhost:3000
+  mqtt:
+    broker-url: ${APP_MQTT_BROKER_URL:tcp://localhost:1884}
+    base-topic: ${APP_MQTT_BASE_TOPIC:biopresence/sensor}
   security:
     jwt:
       secret: ${APP_SECURITY_JWT_SECRET:QmlvUHJlc2VuY2UtZGV2LXNlY3JldC1jaGFuZ2V6LW1vaS1pbXBlcmF0aXZlbWVudC0xMjM0NTY3ODkw}
